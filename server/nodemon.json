@@ -1,0 +1,5 @@
+{
+  "watch": ["server.js", "firebaseAdmin.js", "firestore.js", "storage.js", "loadEnv.js", "controllers", "models", "routes", "middleware"],
+  "ext": "js,json",
+  "ignore": ["node_modules", "serviceAccountKey.json"]
+}
