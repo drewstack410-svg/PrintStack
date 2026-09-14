@@ -86,16 +86,36 @@ class AuthService {
   Future<void> signInWithGoogle() async {
     try {
       await _ensureGoogleInitialized();
-      final googleUser = await GoogleSignIn.instance.authenticate();
+      final googleUser = await GoogleSignIn.instance.authenticate(
+        scopeHint: const ['email', 'profile'],
+      );
       final idToken = googleUser.authentication.idToken;
-      if (idToken == null) {
-        throw const AuthFailure('Google did not return an ID token.');
+      if (idToken == null || idToken.isEmpty) {
+        throw const AuthFailure(
+          'Google did not return an ID token. Check that the Web client ID and Android SHA-1 are set in Firebase.',
+        );
       }
+
+      String? accessToken;
+      try {
+        final authz = await googleUser.authorizationClient.authorizationForScopes(
+          const ['email', 'profile'],
+        );
+        accessToken = authz?.accessToken;
+      } catch (_) {
+        // Access token is optional for Firebase Auth; ID token is enough.
+      }
+
       final credential = await _auth.signInWithCredential(
-        GoogleAuthProvider.credential(idToken: idToken),
+        GoogleAuthProvider.credential(
+          idToken: idToken,
+          accessToken: accessToken,
+        ),
       );
       await ensureUserDocument(credential.user!);
     } on AuthFailure {
+      rethrow;
+    } on AuthCanceled {
       rethrow;
     } on GoogleSignInException catch (error) {
       if (error.code == GoogleSignInExceptionCode.canceled ||
@@ -105,6 +125,8 @@ class AuthService {
       throw AuthFailure(_googleMessage(error));
     } on FirebaseAuthException catch (error) {
       throw AuthFailure(_messageFor(error));
+    } catch (error) {
+      throw AuthFailure(error.toString());
     }
   }
 

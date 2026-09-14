@@ -79,5 +79,9 @@
 		<string>UIInterfaceOrientationLandscapeLeft</string>
 		<string>UIInterfaceOrientationLandscapeRight</string>
 	</array>
+	<key>NSLocationWhenInUseUsageDescription</key>
+	<string>PrintStack uses your location to show nearby print partners on the map.</string>
+	<key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
+	<string>PrintStack uses your location to show nearby print partners on the map.</string>
 </dict>
 </plist>

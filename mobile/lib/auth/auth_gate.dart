@@ -3,11 +3,11 @@ import 'dart:async';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 
-import '../pages/home_page.dart';
+import '../components/brand/brand_wordmark.dart';
+import '../layout/main_shell.dart';
 import '../pages/login_page.dart';
 import '../pages/register_page.dart';
 import '../theme.dart';
-import '../widgets/auth_widgets.dart';
 import 'auth_service.dart';
 
 class AuthGate extends StatelessWidget {
@@ -28,7 +28,7 @@ class AuthGate extends StatelessWidget {
         }
 
         unawaited(AuthService.instance.ensureUserDocument(user));
-        return const HomePage();
+        return const MainShell();
       },
     );
   }

@@ -128,8 +128,8 @@ class _LoginPageState extends State<LoginPage> {
               style: TextStyle(color: AppColors.muted, fontSize: 16),
             ),
             const SizedBox(height: 24),
-            if (_error != null) _Banner(message: _error!, isError: true),
-            if (_info != null) _Banner(message: _info!, isError: false),
+            if (_error != null) MessageBanner(message: _error!, isError: true),
+            if (_info != null) MessageBanner(message: _info!),
             TextFormField(
               controller: _email,
               keyboardType: TextInputType.emailAddress,
@@ -207,35 +207,6 @@ class _LoginPageState extends State<LoginPage> {
               ],
             ),
           ],
-        ),
-      ),
-    );
-  }
-}
-
-class _Banner extends StatelessWidget {
-  const _Banner({required this.message, required this.isError});
-
-  final String message;
-  final bool isError;
-
-  @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 16),
-      child: DecoratedBox(
-        decoration: BoxDecoration(
-          color: isError ? const Color(0xFFFFEBEE) : const Color(0xFFE8F5E9),
-          borderRadius: BorderRadius.circular(12),
-        ),
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-          child: Text(
-            message,
-            style: TextStyle(
-              color: isError ? const Color(0xFFB71C1C) : const Color(0xFF1B5E20),
-            ),
-          ),
         ),
       ),
     );

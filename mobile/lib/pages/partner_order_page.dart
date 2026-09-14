@@ -4,6 +4,11 @@ import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 
 import '../api/api_client.dart';
+import '../components/buttons/gradient_button.dart';
+import '../components/common/message_banner.dart';
+import '../components/common/price_row.dart';
+import '../components/common/section_title.dart';
+import '../components/common/status_chip.dart';
 import '../models/partner.dart';
 import '../theme.dart';
 import '../utils/pdf_pages.dart';
@@ -21,8 +26,7 @@ class _PartnerOrderPageState extends State<PartnerOrderPage> {
   PlatformFile? _picked;
   PaperSize? _selectedSize;
   int _copies = 1;
-  int _pages = 1;
-  int _bwPages = 1;
+  int _bwPages = 0;
   int _colorPages = 0;
   bool _colorDetected = false;
   bool _readingPdf = false;
@@ -32,13 +36,14 @@ class _PartnerOrderPageState extends State<PartnerOrderPage> {
 
   List<PaperSize> get _sizes => widget.partner.paperSizes;
 
+  int get _totalPages => _bwPages + _colorPages;
+
   double get _bwUnit => _selectedSize?.priceBw ?? 0;
   double get _colorUnit => _selectedSize?.priceColor ?? 0;
 
-  double get _total {
-    final pageTotal = (_bwPages * _bwUnit) + (_colorPages * _colorUnit);
-    return pageTotal * _copies;
-  }
+  double get _bwSubtotal => _bwPages * _copies * _bwUnit;
+  double get _colorSubtotal => _colorPages * _copies * _colorUnit;
+  double get _total => _bwSubtotal + _colorSubtotal;
 
   String get _pageBreakdown {
     if (_colorPages > 0 && _bwPages > 0) {
@@ -47,7 +52,10 @@ class _PartnerOrderPageState extends State<PartnerOrderPage> {
     if (_colorPages > 0) {
       return '$_colorPages color page${_colorPages == 1 ? '' : 's'}';
     }
-    return '$_bwPages B&W page${_bwPages == 1 ? '' : 's'}';
+    if (_bwPages > 0) {
+      return '$_bwPages B&W page${_bwPages == 1 ? '' : 's'}';
+    }
+    return 'No pages detected';
   }
 
   String get _colorModeLabel {
@@ -68,9 +76,8 @@ class _PartnerOrderPageState extends State<PartnerOrderPage> {
     }
   }
 
-  void _resetDetection({int pages = 1}) {
-    _pages = pages;
-    _bwPages = pages;
+  void _resetDetection() {
+    _bwPages = 0;
     _colorPages = 0;
     _colorDetected = false;
   }
@@ -108,7 +115,6 @@ class _PartnerOrderPageState extends State<PartnerOrderPage> {
     }
 
     setState(() {
-      _pages = info.pages;
       _bwPages = info.bwPages;
       _colorPages = info.colorPages;
       _colorDetected = true;
@@ -118,14 +124,14 @@ class _PartnerOrderPageState extends State<PartnerOrderPage> {
 
   void _forceAllBw() {
     setState(() {
-      _bwPages = _pages;
+      _bwPages = _totalPages;
       _colorPages = 0;
     });
   }
 
   void _forceAllColor() {
     setState(() {
-      _colorPages = _pages;
+      _colorPages = _totalPages;
       _bwPages = 0;
     });
   }
@@ -139,6 +145,10 @@ class _PartnerOrderPageState extends State<PartnerOrderPage> {
     }
     if (size == null) {
       setState(() => _error = 'Choose a paper layout first.');
+      return;
+    }
+    if (_totalPages < 1) {
+      setState(() => _error = 'No pages detected in that PDF.');
       return;
     }
 
@@ -162,7 +172,7 @@ class _PartnerOrderPageState extends State<PartnerOrderPage> {
         filePath: upload.filePath,
         paperSizeId: size.id,
         copies: _copies,
-        pages: _pages,
+        pages: _totalPages,
         bwPages: _bwPages,
         colorPages: _colorPages,
       );
@@ -173,7 +183,7 @@ class _PartnerOrderPageState extends State<PartnerOrderPage> {
 
       setState(() {
         _success =
-            'Uploaded $_pages page${_pages == 1 ? '' : 's'} ($_pageBreakdown). Waiting for partner desktop.';
+            'Uploaded $_pageBreakdown. Waiting for partner desktop.';
         _picked = null;
         _resetDetection();
       });
@@ -196,7 +206,6 @@ class _PartnerOrderPageState extends State<PartnerOrderPage> {
   Widget build(BuildContext context) {
     final partner = widget.partner;
     final online = partner.location?.online == true;
-    final size = _selectedSize;
 
     return Scaffold(
       appBar: AppBar(
@@ -205,26 +214,9 @@ class _PartnerOrderPageState extends State<PartnerOrderPage> {
       body: ListView(
         padding: const EdgeInsets.fromLTRB(20, 20, 20, 32),
         children: [
-          Row(
-            children: [
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-                decoration: BoxDecoration(
-                  color: online
-                      ? const Color(0xFFE8F5E9)
-                      : const Color(0xFFF3F4F6),
-                  borderRadius: BorderRadius.circular(999),
-                ),
-                child: Text(
-                  online ? 'Partner online' : 'Partner offline',
-                  style: TextStyle(
-                    fontSize: 12,
-                    fontWeight: FontWeight.w700,
-                    color: online ? const Color(0xFF1B5E20) : AppColors.muted,
-                  ),
-                ),
-              ),
-            ],
+          StatusChip(
+            label: online ? 'Partner online' : 'Partner offline',
+            active: online,
           ),
           const SizedBox(height: 8),
           Text(
@@ -234,14 +226,7 @@ class _PartnerOrderPageState extends State<PartnerOrderPage> {
             style: const TextStyle(color: AppColors.muted, height: 1.4),
           ),
           const SizedBox(height: 24),
-          const Text(
-            '1. Document',
-            style: TextStyle(
-              fontWeight: FontWeight.w800,
-              fontSize: 16,
-              color: AppColors.navy,
-            ),
-          ),
+          const SectionTitle('1. Document'),
           const SizedBox(height: 10),
           Material(
             color: Colors.white,
@@ -275,8 +260,8 @@ class _PartnerOrderPageState extends State<PartnerOrderPage> {
                             const SizedBox(height: 4),
                             Text(
                               _readingPdf
-                                  ? 'Detecting each page (B&W vs color)…'
-                                  : '$_pages page${_pages == 1 ? '' : 's'} · $_pageBreakdown',
+                                  ? 'Counting B&W and color pages…'
+                                  : _pageBreakdown,
                               style: const TextStyle(
                                 color: AppColors.muted,
                                 fontSize: 13,
@@ -353,7 +338,9 @@ class _PartnerOrderPageState extends State<PartnerOrderPage> {
                     children: [
                       Expanded(
                         child: OutlinedButton(
-                          onPressed: _submitting || _bwPages == _pages
+                          onPressed: _submitting ||
+                                  _totalPages < 1 ||
+                                  _bwPages == _totalPages
                               ? null
                               : _forceAllBw,
                           child: const Text('All B&W'),
@@ -362,7 +349,9 @@ class _PartnerOrderPageState extends State<PartnerOrderPage> {
                       const SizedBox(width: 10),
                       Expanded(
                         child: OutlinedButton(
-                          onPressed: _submitting || _colorPages == _pages
+                          onPressed: _submitting ||
+                                  _totalPages < 1 ||
+                                  _colorPages == _totalPages
                               ? null
                               : _forceAllColor,
                           child: const Text('All Color'),
@@ -375,14 +364,7 @@ class _PartnerOrderPageState extends State<PartnerOrderPage> {
             ),
           ],
           const SizedBox(height: 24),
-          const Text(
-            '2. Layout',
-            style: TextStyle(
-              fontWeight: FontWeight.w800,
-              fontSize: 16,
-              color: AppColors.navy,
-            ),
-          ),
+          const SectionTitle('2. Layout'),
           const SizedBox(height: 10),
           if (_sizes.isEmpty)
             Container(
@@ -462,14 +444,7 @@ class _PartnerOrderPageState extends State<PartnerOrderPage> {
               );
             }),
           const SizedBox(height: 14),
-          const Text(
-            '3. Copies',
-            style: TextStyle(
-              fontWeight: FontWeight.w800,
-              fontSize: 16,
-              color: AppColors.navy,
-            ),
-          ),
+          const SectionTitle('3. Copies'),
           const SizedBox(height: 10),
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
@@ -513,26 +488,19 @@ class _PartnerOrderPageState extends State<PartnerOrderPage> {
               borderRadius: BorderRadius.circular(16),
             ),
             child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                _PriceRow(label: 'Pages', value: '$_pages'),
+                PriceRow(
+                  label: 'B&W pages',
+                  value:
+                      '$_bwPages × $_copies × ₱${_bwUnit.toStringAsFixed(2)} = ₱${_bwSubtotal.toStringAsFixed(2)}',
+                ),
                 const SizedBox(height: 8),
-                _PriceRow(label: 'B&W pages', value: '$_bwPages'),
-                const SizedBox(height: 8),
-                _PriceRow(label: 'Color pages', value: '$_colorPages'),
-                const SizedBox(height: 8),
-                _PriceRow(label: 'Copies', value: '$_copies'),
-                if (size != null) ...[
-                  const SizedBox(height: 8),
-                  _PriceRow(
-                    label: 'B&W / page',
-                    value: '₱${_bwUnit.toStringAsFixed(2)}',
-                  ),
-                  const SizedBox(height: 8),
-                  _PriceRow(
-                    label: 'Color / page',
-                    value: '₱${_colorUnit.toStringAsFixed(2)}',
-                  ),
-                ],
+                PriceRow(
+                  label: 'Color pages',
+                  value:
+                      '$_colorPages × $_copies × ₱${_colorUnit.toStringAsFixed(2)} = ₱${_colorSubtotal.toStringAsFixed(2)}',
+                ),
                 const Divider(height: 24),
                 Row(
                   children: [
@@ -554,82 +522,27 @@ class _PartnerOrderPageState extends State<PartnerOrderPage> {
                     ),
                   ],
                 ),
-                const SizedBox(height: 4),
-                Align(
-                  alignment: Alignment.centerRight,
-                  child: Text(
-                    '($_bwPages × ₱${_bwUnit.toStringAsFixed(2)} + $_colorPages × ₱${_colorUnit.toStringAsFixed(2)}) × $_copies',
-                    style: const TextStyle(
-                      color: AppColors.muted,
-                      fontSize: 12,
-                    ),
-                  ),
-                ),
               ],
             ),
           ),
           if (_error != null) ...[
             const SizedBox(height: 14),
-            Text(_error!, style: const TextStyle(color: Color(0xFFB71C1C))),
+            MessageBanner(message: _error!, isError: true),
           ],
           if (_success != null) ...[
             const SizedBox(height: 14),
-            Text(_success!, style: const TextStyle(color: Color(0xFF1B5E20))),
+            MessageBanner(message: _success!),
           ],
           const SizedBox(height: 18),
-          DecoratedBox(
-            decoration: BoxDecoration(
-              gradient: AppTheme.brandGradient,
-              borderRadius: BorderRadius.circular(999),
-            ),
-            child: FilledButton(
-              onPressed: _submitting || _readingPdf || _sizes.isEmpty
-                  ? null
-                  : _submit,
-              style: FilledButton.styleFrom(
-                backgroundColor: Colors.transparent,
-                disabledBackgroundColor: Colors.transparent,
-                shadowColor: Colors.transparent,
-                foregroundColor: Colors.white,
-              ),
-              child: _submitting
-                  ? const SizedBox(
-                      width: 22,
-                      height: 22,
-                      child: CircularProgressIndicator(
-                        strokeWidth: 2.4,
-                        color: Colors.white,
-                      ),
-                    )
-                  : const Text('Upload & send to print'),
-            ),
+          GradientButton(
+            label: 'Upload & send to print',
+            busy: _submitting,
+            onPressed: _submitting || _readingPdf || _sizes.isEmpty
+                ? null
+                : _submit,
           ),
         ],
       ),
-    );
-  }
-}
-
-class _PriceRow extends StatelessWidget {
-  const _PriceRow({required this.label, required this.value});
-
-  final String label;
-  final String value;
-
-  @override
-  Widget build(BuildContext context) {
-    return Row(
-      children: [
-        Text(label, style: const TextStyle(color: AppColors.muted)),
-        const Spacer(),
-        Text(
-          value,
-          style: const TextStyle(
-            fontWeight: FontWeight.w700,
-            color: AppColors.navy,
-          ),
-        ),
-      ],
     );
   }
 }

@@ -16,4 +16,9 @@ class AppConfig {
   );
 
   static String get apiUrl => useVercel ? vercelApiUrl : localApiUrl;
+
+  /// Default camera when opening the Print map (Philippines).
+  static const philippinesCenterLat = 12.8797;
+  static const philippinesCenterLng = 121.7740;
+  static const philippinesZoom = 5.6;
 }

@@ -47,9 +47,12 @@ class ApiClient {
     String method,
     String path, {
     Map<String, dynamic>? body,
+    Map<String, String>? query,
   }) async {
     final token = await _idToken();
-    final uri = Uri.parse('${AppConfig.apiUrl}$path');
+    final uri = Uri.parse('${AppConfig.apiUrl}$path').replace(
+      queryParameters: query == null || query.isEmpty ? null : query,
+    );
     final headers = {
       'Authorization': 'Bearer $token',
       'Accept': 'application/json',
@@ -158,6 +161,79 @@ class ApiClient {
         'colorPages': colorPages,
         'colorMode': resolvedMode,
       },
+    );
+  }
+
+  Future<({double lat, double lng, String label})> locate() async {
+    final payload = await _request('POST', '/api/geo/locate');
+    final location = payload['location'];
+    if (location is! Map) {
+      throw const ApiException('Could not determine location.');
+    }
+    return (
+      lat: (location['lat'] as num?)?.toDouble() ?? 0,
+      lng: (location['lng'] as num?)?.toDouble() ?? 0,
+      label: (location['label'] ?? '').toString(),
+    );
+  }
+
+  Future<String> reverseGeocode({
+    required double lat,
+    required double lng,
+  }) async {
+    final payload = await _request(
+      'GET',
+      '/api/geo/reverse',
+      query: {
+        'lat': lat.toString(),
+        'lng': lng.toString(),
+      },
+    );
+    return (payload['label'] ?? '').toString();
+  }
+
+  Future<({
+    List<({double lat, double lng})> points,
+    String distanceText,
+    String durationText,
+  })> fetchRoute({
+    required double fromLat,
+    required double fromLng,
+    required double toLat,
+    required double toLng,
+  }) async {
+    final payload = await _request(
+      'GET',
+      '/api/geo/route',
+      query: {
+        'fromLat': fromLat.toString(),
+        'fromLng': fromLng.toString(),
+        'toLat': toLat.toString(),
+        'toLng': toLng.toString(),
+      },
+    );
+    final route = payload['route'];
+    if (route is! Map) {
+      throw const ApiException('Could not build a route.');
+    }
+
+    final rawPoints = route['points'];
+    final points = <({double lat, double lng})>[];
+    if (rawPoints is List) {
+      for (final item in rawPoints) {
+        if (item is Map) {
+          points.add((
+            lat: (item['lat'] as num?)?.toDouble() ?? 0,
+            lng: (item['lng'] as num?)?.toDouble() ?? 0,
+          ));
+        }
+      }
+    }
+
+    return (
+      points: points,
+      distanceText: (route['distanceText'] ?? '').toString(),
+      durationText: (route['durationText'] ?? '').toString(),
     );
   }
 }

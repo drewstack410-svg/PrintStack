@@ -21,6 +21,7 @@ const {
   updatePaperSize,
 } = require('../controllers/paperSizesController')
 const { updateMyLocation } = require('../controllers/locationController')
+const { locate, reverse, route } = require('../controllers/geoController')
 const {
   createPrintJob,
   createCustomerPrintJob,
@@ -46,6 +47,9 @@ const router = Router()
 router.get('/health', health)
 router.get('/me', requireAuth, me)
 router.patch('/me/location', requireAuth, requireAdmin, updateMyLocation)
+router.post('/geo/locate', requireAuth, locate)
+router.get('/geo/reverse', requireAuth, reverse)
+router.get('/geo/route', requireAuth, route)
 router.get('/partners', requireAuth, listPartners)
 router.post(
   '/partners',

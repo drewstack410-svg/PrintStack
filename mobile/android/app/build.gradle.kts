@@ -40,6 +40,13 @@ android {
             signingConfig = signingConfigs.getByName("debug")
         }
     }
+
+    // pdfrx / pdfium_dart may contribute duplicate libpdfium.so entries.
+    packaging {
+        jniLibs {
+            pickFirsts += listOf("**/libpdfium.so")
+        }
+    }
 }
 
 flutter {

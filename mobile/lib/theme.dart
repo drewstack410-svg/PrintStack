@@ -6,6 +6,8 @@ class AppColors {
   static const purple = Color(0xFF7C5CFF);
   static const purpleDark = Color(0xFF3D1FA8);
   static const navy = Color(0xFF0B1220);
+  /// Dark violet used by top/bottom bars.
+  static const barDark = Color(0xFF24125C);
   static const mist = Color(0xFFF4F7FC);
   static const muted = Color(0xFF5B6475);
 }
@@ -29,7 +31,7 @@ class AppTheme {
       useMaterial3: true,
       fontFamily: 'Roboto',
       appBarTheme: const AppBarTheme(
-        backgroundColor: AppColors.purpleDark,
+        backgroundColor: AppColors.barDark,
         foregroundColor: Colors.white,
         elevation: 0,
         centerTitle: false,

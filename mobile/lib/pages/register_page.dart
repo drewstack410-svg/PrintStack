@@ -119,26 +119,7 @@ class _RegisterPageState extends State<RegisterPage> {
               style: TextStyle(color: AppColors.muted, fontSize: 16),
             ),
             const SizedBox(height: 24),
-            if (_error != null)
-              Padding(
-                padding: const EdgeInsets.only(bottom: 16),
-                child: DecoratedBox(
-                  decoration: BoxDecoration(
-                    color: const Color(0xFFFFEBEE),
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                  child: Padding(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 12,
-                      vertical: 10,
-                    ),
-                    child: Text(
-                      _error!,
-                      style: const TextStyle(color: Color(0xFFB71C1C)),
-                    ),
-                  ),
-                ),
-              ),
+            if (_error != null) MessageBanner(message: _error!, isError: true),
             Row(
               children: [
                 Expanded(
