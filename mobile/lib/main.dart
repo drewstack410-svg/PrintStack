@@ -8,7 +8,7 @@ import 'theme.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  pdfrxFlutterInitialize();
+  await pdfrxFlutterInitialize();
   await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
   runApp(const PrintStackApp());
 }

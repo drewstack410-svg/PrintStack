@@ -237,8 +237,8 @@ class _PartnerOrderPageState extends State<PartnerOrderPage> {
                             const SizedBox(height: 4),
                             Text(
                               _readingPdf
-                                  ? 'Detecting pages & color…'
-                                  : '$_pages page${_pages == 1 ? '' : 's'} · ${_isColor ? 'Color detected' : 'Black & white detected'}',
+                                  ? 'Auto-detecting pages & color…'
+                                  : '$_pages page${_pages == 1 ? '' : 's'} · Auto-detected: ${_isColor ? 'Color' : 'Black & white'}',
                               style: const TextStyle(
                                 color: AppColors.muted,
                                 fontSize: 13,
@@ -264,45 +264,52 @@ class _PartnerOrderPageState extends State<PartnerOrderPage> {
           if (_picked != null && !_readingPdf) ...[
             const SizedBox(height: 12),
             Container(
-              padding: const EdgeInsets.all(8),
+              width: double.infinity,
+              padding: const EdgeInsets.all(14),
               decoration: BoxDecoration(
                 color: Colors.white,
                 borderRadius: BorderRadius.circular(16),
               ),
               child: Row(
                 children: [
+                  Icon(
+                    _isColor ? Icons.palette_outlined : Icons.filter_b_and_w,
+                    color: _isColor ? AppColors.purple : AppColors.navy,
+                  ),
+                  const SizedBox(width: 12),
                   Expanded(
-                    child: _ModeChip(
-                      label: 'B&W',
-                      selected: !_isColor,
-                      onTap: _submitting
-                          ? null
-                          : () => setState(() => _isColor = false),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          _isColor ? 'Color document' : 'Black & white document',
+                          style: const TextStyle(
+                            fontWeight: FontWeight.w800,
+                            color: AppColors.navy,
+                          ),
+                        ),
+                        const SizedBox(height: 2),
+                        Text(
+                          _colorDetected
+                              ? 'Detected automatically from the PDF'
+                              : 'Could not fully analyze; priced as B&W',
+                          style: const TextStyle(
+                            color: AppColors.muted,
+                            fontSize: 12,
+                          ),
+                        ),
+                      ],
                     ),
                   ),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: _ModeChip(
-                      label: 'Color',
-                      selected: _isColor,
-                      onTap: _submitting
-                          ? null
-                          : () => setState(() => _isColor = true),
-                    ),
+                  TextButton(
+                    onPressed: _submitting
+                        ? null
+                        : () => setState(() => _isColor = !_isColor),
+                    child: Text(_isColor ? 'Use B&W' : 'Use Color'),
                   ),
                 ],
               ),
             ),
-            if (_colorDetected)
-              Padding(
-                padding: const EdgeInsets.only(top: 6, left: 4),
-                child: Text(
-                  _isColor
-                      ? 'Auto-detected color. You can switch to B&W if needed.'
-                      : 'Auto-detected black & white. Switch to Color if needed.',
-                  style: const TextStyle(color: AppColors.muted, fontSize: 12),
-                ),
-              ),
           ],
           const SizedBox(height: 24),
           const Text(
@@ -531,41 +538,6 @@ class _PartnerOrderPageState extends State<PartnerOrderPage> {
             ),
           ),
         ],
-      ),
-    );
-  }
-}
-
-class _ModeChip extends StatelessWidget {
-  const _ModeChip({
-    required this.label,
-    required this.selected,
-    required this.onTap,
-  });
-
-  final String label;
-  final bool selected;
-  final VoidCallback? onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    return Material(
-      color: selected ? const Color(0xFFEDE7FF) : AppColors.mist,
-      borderRadius: BorderRadius.circular(12),
-      child: InkWell(
-        borderRadius: BorderRadius.circular(12),
-        onTap: onTap,
-        child: Padding(
-          padding: const EdgeInsets.symmetric(vertical: 12),
-          child: Text(
-            label,
-            textAlign: TextAlign.center,
-            style: TextStyle(
-              fontWeight: FontWeight.w800,
-              color: selected ? AppColors.purple : AppColors.navy,
-            ),
-          ),
-        ),
       ),
     );
   }
