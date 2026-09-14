@@ -1,4 +1,13 @@
-export const API_URL = import.meta.env.VITE_API_URL || 'http://127.0.0.1:3001'
+const LOCAL_API_URL = import.meta.env.VITE_API_URL || 'http://127.0.0.1:3001'
+const VERCEL_API_URL = import.meta.env.VITE_VERCEL_API_URL || ''
+
+export const USE_VERCEL = ['1', 'true', 'yes'].includes(
+  String(import.meta.env.VITE_USE_VERCEL || 'false').toLowerCase(),
+)
+
+export const API_URL = USE_VERCEL
+  ? VERCEL_API_URL || LOCAL_API_URL
+  : LOCAL_API_URL
 
 export function getDesktopApi() {
   if (typeof window === 'undefined') {
