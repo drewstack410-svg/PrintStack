@@ -297,6 +297,8 @@ function isVirtualPrinter(printer) {
   const value = `${printer?.name || ''} ${printer?.displayName || ''}`.toLowerCase()
   return (
     value.includes('anydesk') ||
+    value.includes('rustdesk') ||
+    value.includes('teamviewer') ||
     value.includes('pdf') ||
     value.includes('xps') ||
     value.includes('onenote') ||
@@ -393,11 +395,57 @@ function downloadPdfToTemp(fileUrl, documentName) {
 }
 
 async function printPdfFile({ filePath, printerName, deviceName, copies }) {
+  const targetPrinter = printerName || deviceName
+  const errors = []
+
   if (process.platform === 'win32') {
-    await printPdfWindows(filePath, printerName || deviceName, copies)
-    return
+    try {
+      await printWithPdfToPrinter(filePath, targetPrinter, copies)
+      return
+    } catch (error) {
+      errors.push(error.message || String(error))
+    }
   }
 
+  try {
+    await printWithElectron(filePath, deviceName, copies)
+    return
+  } catch (error) {
+    errors.push(error.message || String(error))
+  }
+
+  throw new Error(
+    `Could not send PDF to the printer. ${errors.filter(Boolean).join(' | ') || 'No print method worked.'}`,
+  )
+}
+
+async function printWithPdfToPrinter(filePath, printerName, copies) {
+  // pdf-to-printer ships SumatraPDF and does not need a Windows PDF file association.
+  const { print, getPrinters } = require('pdf-to-printer')
+  const available = await getPrinters()
+  const wanted = String(printerName || '').trim().toLowerCase()
+  const matched =
+    available.find((item) => String(item.name || '').toLowerCase() === wanted) ||
+    available.find((item) => String(item.name || '').toLowerCase().includes(wanted)) ||
+    available.find((item) => wanted.includes(String(item.name || '').toLowerCase()))
+
+  if (!matched?.name) {
+    const names = available.map((item) => item.name).filter(Boolean).join(', ')
+    throw new Error(
+      `Printer "${printerName}" was not found for PDF printing${names ? `. Available: ${names}` : ''}`,
+    )
+  }
+
+  await print(filePath, {
+    printer: matched.name,
+    copies,
+    silent: true,
+    scale: 'fit',
+  })
+}
+
+async function printWithElectron(filePath, deviceName, copies) {
+  const { pathToFileURL } = require('url')
   const preview = new BrowserWindow({
     show: false,
     width: 900,
@@ -409,8 +457,8 @@ async function printPdfFile({ filePath, printerName, deviceName, copies }) {
   })
 
   try {
-    await loadUrl(preview, `file://${filePath.replace(/\\/g, '/')}`)
-    await sleep(800)
+    await loadUrl(preview, pathToFileURL(filePath).href)
+    await sleep(1200)
     for (let i = 0; i < copies; i += 1) {
       await silentPrint(preview, deviceName)
       if (i < copies - 1) {
@@ -420,33 +468,6 @@ async function printPdfFile({ filePath, printerName, deviceName, copies }) {
   } finally {
     if (!preview.isDestroyed()) {
       preview.close()
-    }
-  }
-}
-
-async function printPdfWindows(filePath, printerName, copies) {
-  const escapedPath = String(filePath).replace(/'/g, "''")
-  const escapedPrinter = String(printerName || '').replace(/'/g, "''")
-
-  for (let i = 0; i < copies; i += 1) {
-    // Prefer PrintTo so the selected printer gets the job in the Windows spooler.
-    const command = `
-$ErrorActionPreference = 'Stop'
-$path = '${escapedPath}'
-$printer = '${escapedPrinter}'
-try {
-  Start-Process -FilePath $path -Verb PrintTo -ArgumentList $printer -WindowStyle Hidden | Out-Null
-} catch {
-  Start-Process -FilePath $path -Verb Print -WindowStyle Hidden | Out-Null
-}
-`
-    await execFileAsync(
-      'powershell.exe',
-      ['-NoProfile', '-NonInteractive', '-Command', command],
-      { windowsHide: true, timeout: 30000 },
-    )
-    if (i < copies - 1) {
-      await sleep(1200)
     }
   }
 }

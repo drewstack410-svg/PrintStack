@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 import '../api/api_client.dart';
 import '../models/partner.dart';
 import '../theme.dart';
+import '../utils/pdf_pages.dart';
 
 class PartnerOrderPage extends StatefulWidget {
   const PartnerOrderPage({super.key, required this.partner});
@@ -20,6 +21,8 @@ class _PartnerOrderPageState extends State<PartnerOrderPage> {
   PlatformFile? _picked;
   PaperSize? _selectedSize;
   int _copies = 1;
+  int _pages = 1;
+  bool _readingPages = false;
   bool _submitting = false;
   String? _error;
   String? _success;
@@ -31,7 +34,7 @@ class _PartnerOrderPageState extends State<PartnerOrderPage> {
     if (size == null) {
       return 0;
     }
-    return size.pricePerPiece * _copies;
+    return size.pricePerPiece * _copies * _pages;
   }
 
   @override
@@ -63,7 +66,21 @@ class _PartnerOrderPageState extends State<PartnerOrderPage> {
       return;
     }
 
-    setState(() => _picked = file);
+    setState(() {
+      _picked = file;
+      _readingPages = true;
+      _pages = 1;
+    });
+
+    final pages = await countPdfPagesSafe(file.path!);
+    if (!mounted) {
+      return;
+    }
+
+    setState(() {
+      _pages = pages;
+      _readingPages = false;
+    });
   }
 
   Future<void> _submit() async {
@@ -98,6 +115,7 @@ class _PartnerOrderPageState extends State<PartnerOrderPage> {
         filePath: upload.filePath,
         paperSizeId: size.id,
         copies: _copies,
+        pages: _pages,
       );
 
       if (!mounted) {
@@ -106,8 +124,9 @@ class _PartnerOrderPageState extends State<PartnerOrderPage> {
 
       setState(() {
         _success =
-            'Uploaded. The partner desktop app will print it when online.';
+            'Uploaded $_pages page${_pages == 1 ? '' : 's'}. The partner desktop will print it when online.';
         _picked = null;
+        _pages = 1;
       });
     } on ApiException catch (error) {
       if (mounted) {
@@ -128,9 +147,12 @@ class _PartnerOrderPageState extends State<PartnerOrderPage> {
   Widget build(BuildContext context) {
     final partner = widget.partner;
     final online = partner.location?.online == true;
+    final size = _selectedSize;
 
     return Scaffold(
-      appBar: AppBar(title: Text(partner.companyName.isEmpty ? 'Partner' : partner.companyName)),
+      appBar: AppBar(
+        title: Text(partner.companyName.isEmpty ? 'Partner' : partner.companyName),
+      ),
       body: ListView(
         padding: const EdgeInsets.fromLTRB(20, 20, 20, 32),
         children: [
@@ -139,7 +161,9 @@ class _PartnerOrderPageState extends State<PartnerOrderPage> {
               Container(
                 padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
                 decoration: BoxDecoration(
-                  color: online ? const Color(0xFFE8F5E9) : const Color(0xFFF3F4F6),
+                  color: online
+                      ? const Color(0xFFE8F5E9)
+                      : const Color(0xFFF3F4F6),
                   borderRadius: BorderRadius.circular(999),
                 ),
                 child: Text(
@@ -175,23 +199,52 @@ class _PartnerOrderPageState extends State<PartnerOrderPage> {
             borderRadius: BorderRadius.circular(16),
             child: InkWell(
               borderRadius: BorderRadius.circular(16),
-              onTap: _submitting ? null : _pickPdf,
+              onTap: _submitting || _readingPages ? null : _pickPdf,
               child: Padding(
                 padding: const EdgeInsets.all(16),
                 child: Row(
                   children: [
-                    const Icon(Icons.picture_as_pdf_outlined, color: AppColors.purple),
+                    const Icon(
+                      Icons.picture_as_pdf_outlined,
+                      color: AppColors.purple,
+                    ),
                     const SizedBox(width: 12),
                     Expanded(
-                      child: Text(
-                        _picked?.name ?? 'Choose PDF',
-                        style: TextStyle(
-                          fontWeight: FontWeight.w700,
-                          color: _picked == null ? AppColors.muted : AppColors.navy,
-                        ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            _picked?.name ?? 'Choose PDF',
+                            style: TextStyle(
+                              fontWeight: FontWeight.w700,
+                              color: _picked == null
+                                  ? AppColors.muted
+                                  : AppColors.navy,
+                            ),
+                          ),
+                          if (_picked != null) ...[
+                            const SizedBox(height: 4),
+                            Text(
+                              _readingPages
+                                  ? 'Detecting pages…'
+                                  : '$_pages page${_pages == 1 ? '' : 's'} detected',
+                              style: const TextStyle(
+                                color: AppColors.muted,
+                                fontSize: 13,
+                              ),
+                            ),
+                          ],
+                        ],
                       ),
                     ),
-                    const Icon(Icons.upload_file, color: AppColors.muted),
+                    if (_readingPages)
+                      const SizedBox(
+                        width: 18,
+                        height: 18,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    else
+                      const Icon(Icons.upload_file, color: AppColors.muted),
                   ],
                 ),
               ),
@@ -220,8 +273,8 @@ class _PartnerOrderPageState extends State<PartnerOrderPage> {
               ),
             )
           else
-            ..._sizes.map((size) {
-              final selected = _selectedSize?.id == size.id;
+            ..._sizes.map((item) {
+              final selected = _selectedSize?.id == item.id;
               return Padding(
                 padding: const EdgeInsets.only(bottom: 10),
                 child: Material(
@@ -231,7 +284,7 @@ class _PartnerOrderPageState extends State<PartnerOrderPage> {
                     borderRadius: BorderRadius.circular(16),
                     onTap: _submitting
                         ? null
-                        : () => setState(() => _selectedSize = size),
+                        : () => setState(() => _selectedSize = item),
                     child: Container(
                       padding: const EdgeInsets.all(14),
                       decoration: BoxDecoration(
@@ -249,7 +302,9 @@ class _PartnerOrderPageState extends State<PartnerOrderPage> {
                             selected
                                 ? Icons.radio_button_checked
                                 : Icons.radio_button_off,
-                            color: selected ? AppColors.purple : AppColors.muted,
+                            color: selected
+                                ? AppColors.purple
+                                : AppColors.muted,
                           ),
                           const SizedBox(width: 12),
                           Expanded(
@@ -257,7 +312,7 @@ class _PartnerOrderPageState extends State<PartnerOrderPage> {
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
                                 Text(
-                                  size.name,
+                                  item.name,
                                   style: const TextStyle(
                                     fontWeight: FontWeight.w700,
                                     color: AppColors.navy,
@@ -265,20 +320,13 @@ class _PartnerOrderPageState extends State<PartnerOrderPage> {
                                 ),
                                 const SizedBox(height: 2),
                                 Text(
-                                  size.sizeLabel,
+                                  '${item.sizeLabel} · ₱${item.pricePerPiece.toStringAsFixed(2)} / page',
                                   style: const TextStyle(
                                     color: AppColors.muted,
                                     fontSize: 13,
                                   ),
                                 ),
                               ],
-                            ),
-                          ),
-                          Text(
-                            '₱${size.pricePerPiece.toStringAsFixed(2)}',
-                            style: const TextStyle(
-                              fontWeight: FontWeight.w800,
-                              color: AppColors.navy,
                             ),
                           ),
                         ],
@@ -339,22 +387,90 @@ class _PartnerOrderPageState extends State<PartnerOrderPage> {
               color: Colors.white,
               borderRadius: BorderRadius.circular(16),
             ),
-            child: Row(
+            child: Column(
               children: [
-                const Text(
-                  'Estimated total',
-                  style: TextStyle(
-                    fontWeight: FontWeight.w700,
-                    color: AppColors.navy,
-                  ),
+                Row(
+                  children: [
+                    const Text(
+                      'Pages',
+                      style: TextStyle(color: AppColors.muted),
+                    ),
+                    const Spacer(),
+                    Text(
+                      '$_pages',
+                      style: const TextStyle(
+                        fontWeight: FontWeight.w700,
+                        color: AppColors.navy,
+                      ),
+                    ),
+                  ],
                 ),
-                const Spacer(),
-                Text(
-                  '₱${_total.toStringAsFixed(2)}',
-                  style: const TextStyle(
-                    fontSize: 22,
-                    fontWeight: FontWeight.w800,
-                    color: AppColors.purple,
+                const SizedBox(height: 8),
+                Row(
+                  children: [
+                    const Text(
+                      'Copies',
+                      style: TextStyle(color: AppColors.muted),
+                    ),
+                    const Spacer(),
+                    Text(
+                      '$_copies',
+                      style: const TextStyle(
+                        fontWeight: FontWeight.w700,
+                        color: AppColors.navy,
+                      ),
+                    ),
+                  ],
+                ),
+                if (size != null) ...[
+                  const SizedBox(height: 8),
+                  Row(
+                    children: [
+                      const Text(
+                        'Price / page',
+                        style: TextStyle(color: AppColors.muted),
+                      ),
+                      const Spacer(),
+                      Text(
+                        '₱${size.pricePerPiece.toStringAsFixed(2)}',
+                        style: const TextStyle(
+                          fontWeight: FontWeight.w700,
+                          color: AppColors.navy,
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+                const Divider(height: 24),
+                Row(
+                  children: [
+                    const Text(
+                      'Estimated total',
+                      style: TextStyle(
+                        fontWeight: FontWeight.w700,
+                        color: AppColors.navy,
+                      ),
+                    ),
+                    const Spacer(),
+                    Text(
+                      '₱${_total.toStringAsFixed(2)}',
+                      style: const TextStyle(
+                        fontSize: 22,
+                        fontWeight: FontWeight.w800,
+                        color: AppColors.purple,
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 4),
+                Align(
+                  alignment: Alignment.centerRight,
+                  child: Text(
+                    '$_pages pages × $_copies copies',
+                    style: const TextStyle(
+                      color: AppColors.muted,
+                      fontSize: 12,
+                    ),
                   ),
                 ),
               ],
@@ -375,7 +491,9 @@ class _PartnerOrderPageState extends State<PartnerOrderPage> {
               borderRadius: BorderRadius.circular(999),
             ),
             child: FilledButton(
-              onPressed: _submitting || _sizes.isEmpty ? null : _submit,
+              onPressed: _submitting || _readingPages || _sizes.isEmpty
+                  ? null
+                  : _submit,
               style: FilledButton.styleFrom(
                 backgroundColor: Colors.transparent,
                 disabledBackgroundColor: Colors.transparent,
