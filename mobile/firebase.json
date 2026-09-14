@@ -1,0 +1,30 @@
+{
+  "flutter": {
+    "platforms": {
+      "android": {
+        "default": {
+          "projectId": "printstack-bcd71",
+          "appId": "1:445834428378:android:467a7b6a6b3d92f28f0ae3",
+          "fileOutput": "android/app/google-services.json"
+        }
+      },
+      "ios": {
+        "default": {
+          "projectId": "printstack-bcd71",
+          "appId": "1:445834428378:ios:0c41f0d7b54658c98f0ae3",
+          "uploadDebugSymbols": false,
+          "fileOutput": "ios/Runner/GoogleService-Info.plist"
+        }
+      },
+      "dart": {
+        "lib/firebase_options.dart": {
+          "projectId": "printstack-bcd71",
+          "configurations": {
+            "android": "1:445834428378:android:467a7b6a6b3d92f28f0ae3",
+            "ios": "1:445834428378:ios:0c41f0d7b54658c98f0ae3"
+          }
+        }
+      }
+    }
+  }
+}

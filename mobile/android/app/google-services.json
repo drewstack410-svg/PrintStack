@@ -1,0 +1,54 @@
+{
+  "project_info": {
+    "project_number": "445834428378",
+    "project_id": "printstack-bcd71",
+    "storage_bucket": "printstack-bcd71.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:445834428378:android:467a7b6a6b3d92f28f0ae3",
+        "android_client_info": {
+          "package_name": "com.example.mobile"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "445834428378-f99956hd85m2i1a83342l3q90ee3gkhc.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.example.mobile",
+            "certificate_hash": "50027c77e7c6e1fd47c31e81df09fc00de172508"
+          }
+        },
+        {
+          "client_id": "445834428378-v1ktsk6ovoreo12ie9ioel7ubljd18i9.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCID5LSm1U4O6MU2ztKn5CdqSRsiAWrPMM"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "445834428378-v1ktsk6ovoreo12ie9ioel7ubljd18i9.apps.googleusercontent.com",
+              "client_type": 3
+            },
+            {
+              "client_id": "445834428378-vlh6dopb9eiha27284o1ldm5qd9bg7el.apps.googleusercontent.com",
+              "client_type": 2,
+              "ios_info": {
+                "bundle_id": "com.example.mobile"
+              }
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
