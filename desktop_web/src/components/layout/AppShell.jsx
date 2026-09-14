@@ -21,8 +21,11 @@ const PAGE_TITLES = {
 }
 
 export default function AppShell() {
-  const { user, isSuperAdmin, isAdmin } = useAuth()
-  const trackedLocation = usePartnerLocation({ user, enabled: isAdmin })
+  const { user, profile, isSuperAdmin, isAdmin } = useAuth()
+  const trackedLocation = usePartnerLocation({
+    user,
+    enabled: Boolean(isAdmin && profile?.partnerId),
+  })
   const navItems = isSuperAdmin ? SUPERADMIN_NAV_ITEMS : ADMIN_NAV_ITEMS
   const [page, setPage] = useState('dashboard')
   const [mobileOpen, setMobileOpen] = useState(false)

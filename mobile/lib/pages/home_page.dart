@@ -1,9 +1,11 @@
+import 'dart:async';
+
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 
-import '../api/api_client.dart';
 import '../auth/auth_service.dart';
 import '../models/partner.dart';
+import '../services/partners_repository.dart';
 import '../theme.dart';
 
 class HomePage extends StatefulWidget {
@@ -14,18 +16,25 @@ class HomePage extends StatefulWidget {
 }
 
 class _HomePageState extends State<HomePage> {
-  late Future<List<Partner>> _partnersFuture;
+  late Stream<List<Partner>> _partnersStream;
+  Timer? _tick;
 
   @override
   void initState() {
     super.initState();
-    _partnersFuture = ApiClient.instance.listPartners();
+    _partnersStream = PartnersRepository.instance.watchPartners();
+    // Recompute online/offline freshness every 30s even if Firestore is quiet.
+    _tick = Timer.periodic(const Duration(seconds: 30), (_) {
+      if (mounted) {
+        setState(() {});
+      }
+    });
   }
 
-  Future<void> _refresh() async {
-    final next = ApiClient.instance.listPartners();
-    setState(() => _partnersFuture = next);
-    await next;
+  @override
+  void dispose() {
+    _tick?.cancel();
+    super.dispose();
   }
 
   @override
@@ -39,79 +48,100 @@ class _HomePageState extends State<HomePage> {
         title: const Text('PrintStack'),
         actions: [
           IconButton(
-            tooltip: 'Refresh',
-            onPressed: _refresh,
-            icon: const Icon(Icons.refresh),
-          ),
-          IconButton(
             tooltip: 'Sign out',
             onPressed: () => AuthService.instance.signOut(),
             icon: const Icon(Icons.logout),
           ),
         ],
       ),
-      body: RefreshIndicator(
-        onRefresh: _refresh,
-        child: ListView(
-          padding: const EdgeInsets.fromLTRB(20, 20, 20, 32),
-          children: [
-            Text(
-              'Hi, $greeting',
-              style: const TextStyle(
-                fontSize: 28,
-                fontWeight: FontWeight.w800,
-                color: AppColors.navy,
-              ),
-            ),
-            const SizedBox(height: 6),
-            Text(
-              'Browse print partners near you',
-              style: const TextStyle(color: AppColors.muted, fontSize: 14),
-            ),
-            const SizedBox(height: 20),
-            FutureBuilder<List<Partner>>(
-              future: _partnersFuture,
-              builder: (context, snapshot) {
-                if (snapshot.connectionState == ConnectionState.waiting) {
-                  return const Padding(
-                    padding: EdgeInsets.only(top: 48),
-                    child: Center(child: CircularProgressIndicator()),
-                  );
-                }
+      body: StreamBuilder<List<Partner>>(
+        stream: _partnersStream,
+        builder: (context, snapshot) {
+          if (snapshot.connectionState == ConnectionState.waiting &&
+              !snapshot.hasData) {
+            return const Center(child: CircularProgressIndicator());
+          }
 
-                if (snapshot.hasError) {
-                  return _ErrorCard(
-                    message: snapshot.error.toString(),
-                    onRetry: _refresh,
-                  );
-                }
+          if (snapshot.hasError) {
+            return ListView(
+              padding: const EdgeInsets.all(20),
+              children: [
+                _Greeting(greeting: greeting),
+                const SizedBox(height: 20),
+                _ErrorCard(
+                  message: snapshot.error.toString(),
+                  onRetry: () {
+                    setState(() {
+                      _partnersStream =
+                          PartnersRepository.instance.watchPartners();
+                    });
+                  },
+                ),
+              ],
+            );
+          }
 
-                final partners = snapshot.data ?? const <Partner>[];
-                if (partners.isEmpty) {
-                  return const _EmptyCard();
-                }
+          final partners = snapshot.data ?? const <Partner>[];
+          final onlineCount =
+              partners.where((p) => p.location?.online == true).length;
 
-                return Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    Text(
-                      '${partners.length} partner${partners.length == 1 ? '' : 's'}',
-                      style: const TextStyle(
-                        fontWeight: FontWeight.w700,
-                        color: AppColors.navy,
-                      ),
+          return RefreshIndicator(
+            onRefresh: () async {
+              setState(() {
+                _partnersStream = PartnersRepository.instance.watchPartners();
+              });
+              await _partnersStream.first;
+            },
+            child: ListView(
+              padding: const EdgeInsets.fromLTRB(20, 20, 20, 32),
+              children: [
+                _Greeting(greeting: greeting),
+                const SizedBox(height: 6),
+                const Text(
+                  'Partner locations update in realtime',
+                  style: TextStyle(color: AppColors.muted, fontSize: 14),
+                ),
+                const SizedBox(height: 20),
+                if (partners.isEmpty)
+                  const _EmptyCard()
+                else ...[
+                  Text(
+                    '$onlineCount online · ${partners.length} partner${partners.length == 1 ? '' : 's'}',
+                    style: const TextStyle(
+                      fontWeight: FontWeight.w700,
+                      color: AppColors.navy,
                     ),
-                    const SizedBox(height: 12),
-                    ...partners.map((partner) => Padding(
-                          padding: const EdgeInsets.only(bottom: 12),
-                          child: _PartnerTile(partner: partner),
-                        )),
-                  ],
-                );
-              },
+                  ),
+                  const SizedBox(height: 12),
+                  ...partners.map(
+                    (partner) => Padding(
+                      padding: const EdgeInsets.only(bottom: 12),
+                      child: _PartnerTile(partner: partner),
+                    ),
+                  ),
+                ],
+              ],
             ),
-          ],
-        ),
+          );
+        },
+      ),
+    );
+  }
+}
+
+class _Greeting extends StatelessWidget {
+  const _Greeting({required this.greeting});
+
+  final String greeting;
+
+  @override
+  Widget build(BuildContext context) {
+    return Text(
+      'Hi, $greeting',
+      style: const TextStyle(
+        fontSize: 28,
+        fontWeight: FontWeight.w800,
+        color: AppColors.navy,
       ),
     );
   }
@@ -134,67 +164,59 @@ class _PartnerTile extends StatelessWidget {
     return Material(
       color: Colors.white,
       borderRadius: BorderRadius.circular(16),
-      child: InkWell(
-        borderRadius: BorderRadius.circular(16),
-        onTap: () {},
-        child: Padding(
-          padding: const EdgeInsets.all(14),
-          child: Row(
-            children: [
-              _Logo(url: partner.logoUrl, name: partner.companyName),
-              const SizedBox(width: 14),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
+      child: Padding(
+        padding: const EdgeInsets.all(14),
+        child: Row(
+          children: [
+            _Logo(url: partner.logoUrl, name: partner.companyName),
+            const SizedBox(width: 14),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    partner.companyName.isEmpty
+                        ? 'Untitled partner'
+                        : partner.companyName,
+                    style: const TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.w700,
+                      color: AppColors.navy,
+                    ),
+                  ),
+                  if (subtitle.isNotEmpty) ...[
+                    const SizedBox(height: 4),
                     Text(
-                      partner.companyName.isEmpty
-                          ? 'Untitled partner'
-                          : partner.companyName,
+                      subtitle,
                       style: const TextStyle(
-                        fontSize: 16,
-                        fontWeight: FontWeight.w700,
-                        color: AppColors.navy,
+                        color: AppColors.muted,
+                        fontSize: 13,
                       ),
                     ),
-                    if (subtitle.isNotEmpty) ...[
-                      const SizedBox(height: 4),
-                      Text(
-                        subtitle,
-                        style: const TextStyle(
-                          color: AppColors.muted,
-                          fontSize: 13,
-                        ),
-                      ),
-                    ],
                   ],
+                ],
+              ),
+            ),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+              decoration: BoxDecoration(
+                color: location?.online == true
+                    ? const Color(0xFFE8F5E9)
+                    : const Color(0xFFF3F4F6),
+                borderRadius: BorderRadius.circular(999),
+              ),
+              child: Text(
+                location?.online == true ? 'Online' : 'Offline',
+                style: TextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.w700,
+                  color: location?.online == true
+                      ? const Color(0xFF1B5E20)
+                      : AppColors.muted,
                 ),
               ),
-              if (location != null)
-                Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 10,
-                    vertical: 5,
-                  ),
-                  decoration: BoxDecoration(
-                    color: location.online
-                        ? const Color(0xFFE8F5E9)
-                        : const Color(0xFFF3F4F6),
-                    borderRadius: BorderRadius.circular(999),
-                  ),
-                  child: Text(
-                    location.online ? 'Online' : 'Offline',
-                    style: TextStyle(
-                      fontSize: 12,
-                      fontWeight: FontWeight.w700,
-                      color: location.online
-                          ? const Color(0xFF1B5E20)
-                          : AppColors.muted,
-                    ),
-                  ),
-                ),
-            ],
-          ),
+            ),
+          ],
         ),
       ),
     );
@@ -288,7 +310,7 @@ class _ErrorCard extends StatelessWidget {
   const _ErrorCard({required this.message, required this.onRetry});
 
   final String message;
-  final Future<void> Function() onRetry;
+  final VoidCallback onRetry;
 
   @override
   Widget build(BuildContext context) {
@@ -301,15 +323,9 @@ class _ErrorCard extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          Text(
-            message,
-            style: const TextStyle(color: Color(0xFFB71C1C)),
-          ),
+          Text(message, style: const TextStyle(color: Color(0xFFB71C1C))),
           const SizedBox(height: 12),
-          OutlinedButton(
-            onPressed: () => onRetry(),
-            child: const Text('Try again'),
-          ),
+          OutlinedButton(onPressed: onRetry, child: const Text('Try again')),
         ],
       ),
     );
