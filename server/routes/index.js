@@ -1,13 +1,32 @@
-import multer from 'multer'
-import { Router } from 'express'
-import { health } from '../controllers/healthController.js'
-import { me } from '../controllers/meController.js'
-import { createPartner, deletePartner, listPartners, updatePartner } from '../controllers/partnersController.js'
-import { createStaff, deleteStaff, listStaffs, updateStaff } from '../controllers/staffsController.js'
-import { createPaperSize, deletePaperSize, listPaperSizes, updatePaperSize } from '../controllers/paperSizesController.js'
-import { updateMyLocation } from '../controllers/locationController.js'
-import { createPrintJob, listPrintJobs, updatePrintJob } from '../controllers/printJobsController.js'
-import { requireAdmin, requireAuth, requireSuperAdmin } from '../middleware/auth.js'
+const multer = require('multer')
+const { Router } = require('express')
+const { health } = require('../controllers/healthController')
+const { me } = require('../controllers/meController')
+const {
+  createPartner,
+  deletePartner,
+  listPartners,
+  updatePartner,
+} = require('../controllers/partnersController')
+const {
+  createStaff,
+  deleteStaff,
+  listStaffs,
+  updateStaff,
+} = require('../controllers/staffsController')
+const {
+  createPaperSize,
+  deletePaperSize,
+  listPaperSizes,
+  updatePaperSize,
+} = require('../controllers/paperSizesController')
+const { updateMyLocation } = require('../controllers/locationController')
+const {
+  createPrintJob,
+  listPrintJobs,
+  updatePrintJob,
+} = require('../controllers/printJobsController')
+const { requireAdmin, requireAuth, requireSuperAdmin } = require('../middleware/auth')
 
 const upload = multer({
   storage: multer.memoryStorage(),
@@ -21,7 +40,7 @@ const upload = multer({
   },
 })
 
-export const router = Router()
+const router = Router()
 
 router.get('/health', health)
 router.get('/me', requireAuth, me)
@@ -50,4 +69,8 @@ router.get('/paper-sizes', requireAuth, requireAdmin, listPaperSizes)
 router.post('/paper-sizes', requireAuth, requireAdmin, createPaperSize)
 router.patch('/paper-sizes/:id', requireAuth, requireAdmin, updatePaperSize)
 router.delete('/paper-sizes/:id', requireAuth, requireAdmin, deletePaperSize)
+router.get('/print-jobs', requireAuth, requireAdmin, listPrintJobs)
+router.post('/print-jobs', requireAuth, requireAdmin, createPrintJob)
+router.patch('/print-jobs/:id', requireAuth, requireAdmin, updatePrintJob)
 
+module.exports = { router }

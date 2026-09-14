@@ -1,6 +1,6 @@
 const ONLINE_MS = 5 * 60 * 1000
 
-export function toIso(value) {
+function toIso(value) {
   if (!value) {
     return null
   }
@@ -13,7 +13,7 @@ export function toIso(value) {
   return Number.isNaN(date.getTime()) ? null : date.toISOString()
 }
 
-export function isLocationOnline(location) {
+function isLocationOnline(location) {
   if (!location || location.online === false) {
     return false
   }
@@ -26,7 +26,7 @@ export function isLocationOnline(location) {
   return Date.now() - new Date(iso).getTime() <= ONLINE_MS
 }
 
-export function mapLocation(location) {
+function mapLocation(location) {
   if (!location || !Number.isFinite(Number(location.lat)) || !Number.isFinite(Number(location.lng))) {
     return null
   }
@@ -38,4 +38,10 @@ export function mapLocation(location) {
     updatedAt: toIso(location.updatedAt),
     online: isLocationOnline(location),
   }
+}
+
+module.exports = {
+  toIso,
+  isLocationOnline,
+  mapLocation,
 }

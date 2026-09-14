@@ -1,8 +1,8 @@
-import { db } from '../firestore.js'
-import { mapLocation } from '../lib/location.js'
-import { signedLogoUrl } from '../storage.js'
+const { db } = require('../firestore')
+const { mapLocation } = require('../lib/location')
+const { signedLogoUrl } = require('../storage')
 
-export async function me(req, res) {
+async function me(req, res) {
   const profile = { ...req.profile }
 
   if (profile.partnerId) {
@@ -21,3 +21,5 @@ export async function me(req, res) {
 
   res.json(profile)
 }
+
+module.exports = { me }

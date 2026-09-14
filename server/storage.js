@@ -1,13 +1,13 @@
-import { randomUUID } from 'node:crypto'
-import path from 'node:path'
-import { getStorage } from 'firebase-admin/storage'
-import firebaseApp from './firebaseAdmin.js'
+const { randomUUID } = require('node:crypto')
+const path = require('node:path')
+const { getStorage } = require('firebase-admin/storage')
+const firebaseApp = require('./firebaseAdmin')
 
-export function storageBucket() {
+function storageBucket() {
   return getStorage(firebaseApp).bucket()
 }
 
-export async function uploadPartnerLogo(partnerId, file) {
+async function uploadPartnerLogo(partnerId, file) {
   const ext = path.extname(file.originalname || '').toLowerCase() || '.png'
   const objectPath = `partners/${partnerId}/logo${ext}`
   const token = randomUUID()
@@ -27,7 +27,7 @@ export async function uploadPartnerLogo(partnerId, file) {
   return { logoPath: objectPath, logoUrl }
 }
 
-export async function signedLogoUrl(logoPath) {
+async function signedLogoUrl(logoPath) {
   if (!logoPath) {
     return ''
   }
@@ -42,10 +42,17 @@ export async function signedLogoUrl(logoPath) {
   return url
 }
 
-export async function deletePartnerLogo(logoPath) {
+async function deletePartnerLogo(logoPath) {
   if (!logoPath) {
     return
   }
 
   await storageBucket().file(logoPath).delete({ ignoreNotFound: true })
+}
+
+module.exports = {
+  storageBucket,
+  uploadPartnerLogo,
+  signedLogoUrl,
+  deletePartnerLogo,
 }

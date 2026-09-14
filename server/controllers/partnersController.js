@@ -1,11 +1,11 @@
-import { getAuth } from 'firebase-admin/auth'
-import { FieldValue } from 'firebase-admin/firestore'
-import firebaseApp from '../firebaseAdmin.js'
-import { db } from '../firestore.js'
-import { ADMIN_ROLE, STAFF_ROLE } from '../models/user.js'
-import { mapLocation } from '../lib/location.js'
-import { DEFAULT_PAPER_SIZES } from '../lib/paperSizes.js'
-import { deletePartnerLogo, signedLogoUrl, uploadPartnerLogo } from '../storage.js'
+const { getAuth } = require('firebase-admin/auth')
+const { FieldValue } = require('firebase-admin/firestore')
+const firebaseApp = require('../firebaseAdmin')
+const { db } = require('../firestore')
+const { ADMIN_ROLE, STAFF_ROLE } = require('../models/user')
+const { mapLocation } = require('../lib/location')
+const { DEFAULT_PAPER_SIZES } = require('../lib/paperSizes')
+const { deletePartnerLogo, signedLogoUrl, uploadPartnerLogo } = require('../storage')
 
 function mapPartner(doc, logoUrl = '') {
   const data = doc.data() || {}
@@ -27,13 +27,13 @@ async function withLogo(doc) {
   return mapPartner(doc, logoUrl)
 }
 
-export async function listPartners(_req, res) {
+async function listPartners(_req, res) {
   const snap = await db.collection('partners').orderBy('createdAt', 'desc').get()
   const partners = await Promise.all(snap.docs.map(withLogo))
   res.json({ partners })
 }
 
-export async function createPartner(req, res) {
+async function createPartner(req, res) {
   const companyName = String(req.body.companyName || '').trim()
   const email = String(req.body.email || '').trim().toLowerCase()
   const password = String(req.body.password || '')
@@ -114,7 +114,7 @@ export async function createPartner(req, res) {
   }
 }
 
-export async function updatePartner(req, res) {
+async function updatePartner(req, res) {
   const partnerRef = db.collection('partners').doc(req.params.id)
   const snap = await partnerRef.get()
   if (!snap.exists) {
@@ -201,7 +201,7 @@ export async function updatePartner(req, res) {
   }
 }
 
-export async function deletePartner(req, res) {
+async function deletePartner(req, res) {
   const partnerRef = db.collection('partners').doc(req.params.id)
   const snap = await partnerRef.get()
   if (!snap.exists) {
@@ -234,4 +234,11 @@ export async function deletePartner(req, res) {
     console.error('[partners] delete failed', error)
     res.status(500).json({ error: 'Could not delete partner' })
   }
+}
+
+module.exports = {
+  listPartners,
+  createPartner,
+  updatePartner,
+  deletePartner,
 }

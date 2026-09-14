@@ -1,4 +1,6 @@
-import { getFirestore } from 'firebase-admin/firestore'
-import firebaseApp from './firebaseAdmin.js'
+const { getFirestore } = require('firebase-admin/firestore')
+const firebaseApp = require('./firebaseAdmin')
 
-export const db = getFirestore(firebaseApp)
+const db = getFirestore(firebaseApp)
+
+module.exports = { db }

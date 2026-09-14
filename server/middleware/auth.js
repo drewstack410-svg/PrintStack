@@ -1,9 +1,9 @@
-import { getAuth } from 'firebase-admin/auth'
-import firebaseApp from '../firebaseAdmin.js'
-import { db } from '../firestore.js'
-import { ADMIN_ROLE, mapUserDoc, SUPERADMIN_ROLE } from '../models/user.js'
+const { getAuth } = require('firebase-admin/auth')
+const firebaseApp = require('../firebaseAdmin')
+const { db } = require('../firestore')
+const { ADMIN_ROLE, mapUserDoc, SUPERADMIN_ROLE } = require('../models/user')
 
-export async function requireAuth(req, res, next) {
+async function requireAuth(req, res, next) {
   const header = req.headers.authorization || ''
   const token = header.startsWith('Bearer ') ? header.slice(7) : ''
 
@@ -23,7 +23,7 @@ export async function requireAuth(req, res, next) {
   }
 }
 
-export function requireAdmin(req, res, next) {
+function requireAdmin(req, res, next) {
   if (req.profile?.role !== ADMIN_ROLE) {
     res.status(403).json({ error: 'Admin only' })
     return
@@ -32,7 +32,7 @@ export function requireAdmin(req, res, next) {
   next()
 }
 
-export function requireSuperAdmin(req, res, next) {
+function requireSuperAdmin(req, res, next) {
   if (req.profile?.role !== SUPERADMIN_ROLE) {
     res.status(403).json({ error: 'Superadmin only' })
     return
@@ -41,3 +41,8 @@ export function requireSuperAdmin(req, res, next) {
   next()
 }
 
+module.exports = {
+  requireAuth,
+  requireAdmin,
+  requireSuperAdmin,
+}

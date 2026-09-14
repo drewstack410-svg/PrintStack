@@ -1,4 +1,4 @@
-export const DEFAULT_PAPER_SIZES = [
+const DEFAULT_PAPER_SIZES = [
   { id: 'a4', name: 'A4', width: 210, height: 297, unit: 'mm', pricePerPiece: 0 },
   { id: 'a3', name: 'A3', width: 297, height: 420, unit: 'mm', pricePerPiece: 0 },
   { id: 'a5', name: 'A5', width: 148, height: 210, unit: 'mm', pricePerPiece: 0 },
@@ -6,7 +6,7 @@ export const DEFAULT_PAPER_SIZES = [
   { id: 'long', name: 'Long', width: 8.5, height: 13, unit: 'in', pricePerPiece: 0 },
 ]
 
-export function mapPaperSize(item = {}, fallbackId = '') {
+function mapPaperSize(item = {}, fallbackId = '') {
   const unit = item.unit === 'in' ? 'in' : 'mm'
   const price = Number(item.pricePerPiece)
   const width = Number(item.width)
@@ -22,7 +22,7 @@ export function mapPaperSize(item = {}, fallbackId = '') {
   }
 }
 
-export function normalizePaperSizes(list) {
+function normalizePaperSizes(list) {
   if (!Array.isArray(list) || list.length === 0) {
     return DEFAULT_PAPER_SIZES.map((size) => ({ ...size }))
   }
@@ -30,4 +30,10 @@ export function normalizePaperSizes(list) {
   return list
     .map((item, index) => mapPaperSize(item, `size-${index + 1}`))
     .filter((item) => item.id && item.name)
+}
+
+module.exports = {
+  DEFAULT_PAPER_SIZES,
+  mapPaperSize,
+  normalizePaperSizes,
 }

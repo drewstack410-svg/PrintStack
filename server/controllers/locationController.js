@@ -1,8 +1,8 @@
-import { FieldValue } from 'firebase-admin/firestore'
-import { db } from '../firestore.js'
-import { mapLocation } from '../lib/location.js'
+const { FieldValue } = require('firebase-admin/firestore')
+const { db } = require('../firestore')
+const { mapLocation } = require('../lib/location')
 
-export async function updateMyLocation(req, res) {
+async function updateMyLocation(req, res) {
   const partnerId = req.profile?.partnerId
   if (!partnerId) {
     res.status(400).json({ error: 'This account is not linked to a partner' })
@@ -38,3 +38,5 @@ export async function updateMyLocation(req, res) {
     }),
   })
 }
+
+module.exports = { updateMyLocation }

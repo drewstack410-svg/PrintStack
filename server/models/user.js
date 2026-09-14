@@ -1,9 +1,9 @@
-export const SUPERADMIN_ROLE = 'superadmin'
-export const ADMIN_ROLE = 'admin'
-export const PARTNER_ROLE = 'partner'
-export const STAFF_ROLE = 'staff'
+const SUPERADMIN_ROLE = 'superadmin'
+const ADMIN_ROLE = 'admin'
+const PARTNER_ROLE = 'partner'
+const STAFF_ROLE = 'staff'
 
-export function mapUserDoc(uid, data = {}, fallbackEmail = '') {
+function mapUserDoc(uid, data = {}, fallbackEmail = '') {
   const role = data.role || 'user'
 
   return {
@@ -25,7 +25,7 @@ export function mapUserDoc(uid, data = {}, fallbackEmail = '') {
   }
 }
 
-export function displayName(profile) {
+function displayName(profile) {
   if (!profile) {
     return ''
   }
@@ -33,4 +33,13 @@ export function displayName(profile) {
   return [profile.firstName, profile.middleName, profile.lastName]
     .filter(Boolean)
     .join(' ')
+}
+
+module.exports = {
+  SUPERADMIN_ROLE,
+  ADMIN_ROLE,
+  PARTNER_ROLE,
+  STAFF_ROLE,
+  mapUserDoc,
+  displayName,
 }

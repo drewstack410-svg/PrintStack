@@ -1,5 +1,5 @@
-import { FieldValue } from 'firebase-admin/firestore'
-import { db } from '../firestore.js'
+const { FieldValue } = require('firebase-admin/firestore')
+const { db } = require('../firestore')
 
 const STATUSES = new Set(['sending', 'queued', 'printing', 'printed', 'failed'])
 
@@ -30,7 +30,7 @@ async function partnerIdFrom(req, res) {
   return partnerId
 }
 
-export async function listPrintJobs(req, res) {
+async function listPrintJobs(req, res) {
   const partnerId = await partnerIdFrom(req, res)
   if (!partnerId) {
     return
@@ -49,7 +49,7 @@ export async function listPrintJobs(req, res) {
   }
 }
 
-export async function createPrintJob(req, res) {
+async function createPrintJob(req, res) {
   const partnerId = await partnerIdFrom(req, res)
   if (!partnerId) {
     return
@@ -78,7 +78,7 @@ export async function createPrintJob(req, res) {
   res.status(201).json({ printJob: mapJob(snap) })
 }
 
-export async function updatePrintJob(req, res) {
+async function updatePrintJob(req, res) {
   const partnerId = await partnerIdFrom(req, res)
   if (!partnerId) {
     return
@@ -105,4 +105,10 @@ export async function updatePrintJob(req, res) {
 
   const updated = await ref.get()
   res.json({ printJob: mapJob(updated) })
+}
+
+module.exports = {
+  listPrintJobs,
+  createPrintJob,
+  updatePrintJob,
 }

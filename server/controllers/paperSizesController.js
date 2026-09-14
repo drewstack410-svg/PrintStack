@@ -1,5 +1,5 @@
-import { db } from '../firestore.js'
-import { DEFAULT_PAPER_SIZES, mapPaperSize, normalizePaperSizes } from '../lib/paperSizes.js'
+const { db } = require('../firestore')
+const { DEFAULT_PAPER_SIZES, mapPaperSize, normalizePaperSizes } = require('../lib/paperSizes')
 
 async function partnerContext(req, res) {
   const partnerId = req.profile?.partnerId
@@ -21,7 +21,7 @@ async function partnerContext(req, res) {
   }
 }
 
-export async function listPaperSizes(req, res) {
+async function listPaperSizes(req, res) {
   const context = await partnerContext(req, res)
   if (!context) {
     return
@@ -35,7 +35,7 @@ export async function listPaperSizes(req, res) {
   res.json({ paperSizes })
 }
 
-export async function createPaperSize(req, res) {
+async function createPaperSize(req, res) {
   const context = await partnerContext(req, res)
   if (!context) {
     return
@@ -70,7 +70,7 @@ export async function createPaperSize(req, res) {
   res.status(201).json({ paperSize: next, paperSizes: updated })
 }
 
-export async function updatePaperSize(req, res) {
+async function updatePaperSize(req, res) {
   const context = await partnerContext(req, res)
   if (!context) {
     return
@@ -104,7 +104,7 @@ export async function updatePaperSize(req, res) {
   res.json({ paperSize: next, paperSizes: updated })
 }
 
-export async function deletePaperSize(req, res) {
+async function deletePaperSize(req, res) {
   const context = await partnerContext(req, res)
   if (!context) {
     return
@@ -121,4 +121,10 @@ export async function deletePaperSize(req, res) {
   res.json({ ok: true, paperSizes: updated })
 }
 
-export { DEFAULT_PAPER_SIZES }
+module.exports = {
+  listPaperSizes,
+  createPaperSize,
+  updatePaperSize,
+  deletePaperSize,
+  DEFAULT_PAPER_SIZES,
+}

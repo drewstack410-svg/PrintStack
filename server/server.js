@@ -1,8 +1,9 @@
-import express from 'express'
-import cors from 'cors'
-import './loadEnv.js'
-import './firebaseAdmin.js'
-import { router } from './routes/index.js'
+require('./loadEnv')
+require('./firebaseAdmin')
+
+const express = require('express')
+const cors = require('cors')
+const { router } = require('./routes')
 
 const app = express()
 const port = Number(process.env.PORT) || 3001
@@ -27,4 +28,4 @@ if (!process.env.VERCEL) {
   })
 }
 
-export default app
+module.exports = app

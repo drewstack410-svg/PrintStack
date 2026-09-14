@@ -1,7 +1,6 @@
-import { existsSync, readFileSync } from 'node:fs'
-import { dirname, resolve } from 'node:path'
-import { fileURLToPath } from 'node:url'
-import { cert, getApp, getApps, initializeApp } from 'firebase-admin/app'
+const { existsSync, readFileSync } = require('node:fs')
+const { resolve } = require('node:path')
+const { cert, getApp, getApps, initializeApp } = require('firebase-admin/app')
 
 function normalizePrivateKey(value) {
   if (typeof value !== 'string') {
@@ -58,7 +57,7 @@ function loadServiceAccountFromJson() {
 }
 
 function loadServiceAccountFromFile() {
-  const keyPath = resolve(dirname(fileURLToPath(import.meta.url)), 'serviceAccountKey.json')
+  const keyPath = resolve(__dirname, 'serviceAccountKey.json')
   if (!existsSync(keyPath)) {
     return null
   }
@@ -103,4 +102,4 @@ try {
   throw error
 }
 
-export default firebaseApp
+module.exports = firebaseApp

@@ -1,9 +1,9 @@
-import { getAuth } from 'firebase-admin/auth'
-import { FieldValue } from 'firebase-admin/firestore'
-import firebaseApp from '../firebaseAdmin.js'
-import { db } from '../firestore.js'
-import { STAFF_ROLE } from '../models/user.js'
-import { signedLogoUrl } from '../storage.js'
+const { getAuth } = require('firebase-admin/auth')
+const { FieldValue } = require('firebase-admin/firestore')
+const firebaseApp = require('../firebaseAdmin')
+const { db } = require('../firestore')
+const { STAFF_ROLE } = require('../models/user')
+const { signedLogoUrl } = require('../storage')
 
 function mapStaff(doc) {
   const data = doc.data() || {}
@@ -70,7 +70,7 @@ function linkStaffUids(batch, context, staffUid, action) {
   }
 }
 
-export async function listStaffs(req, res) {
+async function listStaffs(req, res) {
   const context = await partnerContext(req, res)
   if (!context) {
     return
@@ -89,7 +89,7 @@ export async function listStaffs(req, res) {
   res.json({ staffs })
 }
 
-export async function createStaff(req, res) {
+async function createStaff(req, res) {
   const context = await partnerContext(req, res)
   if (!context) {
     return
@@ -160,7 +160,7 @@ export async function createStaff(req, res) {
   }
 }
 
-export async function updateStaff(req, res) {
+async function updateStaff(req, res) {
   const owned = await loadOwnedStaff(req, res, req.params.id)
   if (!owned) {
     return
@@ -214,7 +214,7 @@ export async function updateStaff(req, res) {
   }
 }
 
-export async function deleteStaff(req, res) {
+async function deleteStaff(req, res) {
   if (req.params.id === req.user.uid) {
     res.status(400).json({ error: 'You cannot delete your own account' })
     return
@@ -238,4 +238,11 @@ export async function deleteStaff(req, res) {
     console.error('[staffs] delete failed', error)
     res.status(500).json({ error: 'Could not delete staff' })
   }
+}
+
+module.exports = {
+  listStaffs,
+  createStaff,
+  updateStaff,
+  deleteStaff,
 }
