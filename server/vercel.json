@@ -14,6 +14,6 @@
   ],
   "env": {
     "NODE_ENV": "production",
-    "CLIENT_URL": "https://pose-aesthetic-clinic.vercel.app,http://localhost:5173"
+    "CLIENT_URL": "https://print-stack-client.vercel.app,http://localhost:5173"
   }
 }
