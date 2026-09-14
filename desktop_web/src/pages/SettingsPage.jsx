@@ -1,4 +1,4 @@
-import { useMemo } from 'react'
+import { useCallback, useMemo, useState } from 'react'
 import { Alert, Box, Paper, Stack } from '@mui/material'
 import { useAuth } from '../auth/AuthProvider'
 import PageHeader from '../components/dashboard/PageHeader'
@@ -22,9 +22,13 @@ function toMarker(item) {
   }
 }
 
-export default function SettingsPage({ trackedLocation = { location: null, error: '' } }) {
-  const { user, profile, isSuperAdmin } = useAuth()
+export default function SettingsPage({
+  trackedLocation = { location: null, error: '', setManualLocation: null },
+}) {
+  const { user, profile, isSuperAdmin, isAdmin } = useAuth()
   const partners = usePartnerLocations({ user, enabled: isSuperAdmin })
+  const [pinError, setPinError] = useState('')
+  const canPin = Boolean(isAdmin && !isSuperAdmin && trackedLocation.setManualLocation)
 
   const markers = useMemo(() => {
     if (isSuperAdmin) {
@@ -44,9 +48,28 @@ export default function SettingsPage({ trackedLocation = { location: null, error
 
   const liveCount = markers.filter((item) => item.online).length
 
+  const handleLocationPick = useCallback(
+    async ({ lat, lng }) => {
+      if (!trackedLocation.setManualLocation) {
+        return
+      }
+      try {
+        setPinError('')
+        await trackedLocation.setManualLocation({ lat, lng })
+      } catch (err) {
+        setPinError(err.message || 'Could not save this pin')
+      }
+    },
+    [trackedLocation],
+  )
+
   return (
     <Box sx={{ position: 'relative', flex: 1, minHeight: 0, height: '100%' }}>
-      <PartnerLocationMap markers={markers} />
+      <PartnerLocationMap
+        markers={markers}
+        editable={canPin}
+        onLocationPick={canPin ? handleLocationPick : undefined}
+      />
 
       <Stack
         spacing={1.25}
@@ -73,9 +96,22 @@ export default function SettingsPage({ trackedLocation = { location: null, error
           />
         </Paper>
 
+        {canPin ? (
+          <Alert severity="info" sx={{ py: 0 }}>
+            Click the map to place your shop pin exactly. Auto-locate stays on, but won’t
+            overwrite a pin with coarse IP location.
+          </Alert>
+        ) : null}
+
         {trackedLocation.error ? (
           <Alert severity="info" sx={{ py: 0 }}>
             {trackedLocation.error}
+          </Alert>
+        ) : null}
+
+        {pinError ? (
+          <Alert severity="warning" sx={{ py: 0 }}>
+            {pinError}
           </Alert>
         ) : null}
       </Stack>

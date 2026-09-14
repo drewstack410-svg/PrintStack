@@ -99,11 +99,27 @@ function createLogoPinOverlay(maps) {
   }
 }
 
-export default function PartnerLocationMap({ markers = [] }) {
+export default function PartnerLocationMap({
+  markers = [],
+  editable = false,
+  onLocationPick,
+}) {
   const containerRef = useRef(null)
   const mapRef = useRef(null)
   const overlaysRef = useRef([])
   const infoRef = useRef(null)
+  const clickListenerRef = useRef(null)
+  const onPickRef = useRef(onLocationPick)
+  const editableRef = useRef(editable)
+  const fittedKeyRef = useRef('')
+
+  useEffect(() => {
+    onPickRef.current = onLocationPick
+  }, [onLocationPick])
+
+  useEffect(() => {
+    editableRef.current = editable
+  }, [editable])
 
   useEffect(() => {
     let cancelled = false
@@ -130,6 +146,25 @@ export default function PartnerLocationMap({ markers = [] }) {
       const info = infoRef.current || new maps.InfoWindow()
       infoRef.current = info
 
+      if (clickListenerRef.current) {
+        maps.event.removeListener(clickListenerRef.current)
+        clickListenerRef.current = null
+      }
+
+      if (editable) {
+        clickListenerRef.current = map.addListener('click', (event) => {
+          if (!editableRef.current || !event?.latLng) {
+            return
+          }
+          const lat = event.latLng.lat()
+          const lng = event.latLng.lng()
+          onPickRef.current?.({ lat, lng })
+        })
+        map.setOptions({ draggableCursor: 'crosshair' })
+      } else {
+        map.setOptions({ draggableCursor: null })
+      }
+
       overlaysRef.current.forEach((marker) => marker.setMap(null))
       overlaysRef.current = []
 
@@ -152,14 +187,18 @@ export default function PartnerLocationMap({ markers = [] }) {
         bounds.extend(position)
       })
 
-      if (points.length === 1) {
-        map.setCenter({ lat: points[0].lat, lng: points[0].lng })
-        map.setZoom(DEFAULT_MAP_ZOOM)
-      } else if (points.length > 1) {
-        map.fitBounds(bounds, 48)
-      } else {
-        map.setCenter(DEFAULT_MAP_CENTER)
-        map.setZoom(DEFAULT_MAP_ZOOM)
+      const fitKey = points.map((item) => `${item.id}:${item.lat}:${item.lng}`).join('|')
+      if (fitKey !== fittedKeyRef.current) {
+        fittedKeyRef.current = fitKey
+        if (points.length === 1) {
+          map.setCenter({ lat: points[0].lat, lng: points[0].lng })
+          map.setZoom(DEFAULT_MAP_ZOOM)
+        } else if (points.length > 1) {
+          map.fitBounds(bounds, 48)
+        } else {
+          map.setCenter(DEFAULT_MAP_CENTER)
+          map.setZoom(DEFAULT_MAP_ZOOM)
+        }
       }
     }
 
@@ -170,7 +209,7 @@ export default function PartnerLocationMap({ markers = [] }) {
     return () => {
       cancelled = true
     }
-  }, [markers])
+  }, [markers, editable])
 
   return (
     <div

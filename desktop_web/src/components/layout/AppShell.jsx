@@ -25,6 +25,7 @@ export default function AppShell() {
   const trackedLocation = usePartnerLocation({
     user,
     enabled: Boolean(isAdmin && profile?.partnerId),
+    seedLocation: profile?.location || null,
   })
   const navItems = isSuperAdmin ? SUPERADMIN_NAV_ITEMS : ADMIN_NAV_ITEMS
   const [page, setPage] = useState('dashboard')

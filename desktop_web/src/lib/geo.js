@@ -3,32 +3,92 @@ import { fetchRouteViaApi, locateViaApi, reverseGeocodeViaApi } from '../api'
 /** Used only to load the Google Maps JS map widget (tiles), not for geo APIs. */
 export const GOOGLE_MAPS_API_KEY = import.meta.env.VITE_GOOGLE_MAPS_API_KEY || ''
 
-export function locateWithDevice() {
+/** Prefer fixes better than this (meters). Desktops often land ~20–80m with Wi‑Fi. */
+export const GOOD_ACCURACY_M = 100
+/** Coarser than this is treated as unusable for overwriting a known shop pin. */
+export const MAX_ACCEPTABLE_ACCURACY_M = 500
+
+function toCoords(position, source = 'device') {
+  return {
+    latitude: position.coords.latitude,
+    longitude: position.coords.longitude,
+    accuracy: Number(position.coords.accuracy),
+    source,
+  }
+}
+
+/**
+ * Watch OS / Chromium location until accuracy is good enough, or return the
+ * best sample seen before timeout. Desktop PCs need a few samples for Wi‑Fi.
+ */
+export function locateWithDevice({
+  timeoutMs = 25_000,
+  goodAccuracyM = GOOD_ACCURACY_M,
+} = {}) {
   return new Promise((resolve, reject) => {
     if (!navigator.geolocation) {
       reject(new Error('Geolocation is not available'))
       return
     }
 
-    navigator.geolocation.getCurrentPosition(
+    let best = null
+    let settled = false
+    let watchId = null
+    let timer = null
+
+    const finish = (result, error) => {
+      if (settled) {
+        return
+      }
+      settled = true
+      if (timer != null) {
+        window.clearTimeout(timer)
+      }
+      if (watchId != null) {
+        navigator.geolocation.clearWatch(watchId)
+      }
+      if (result) {
+        resolve(result)
+        return
+      }
+      reject(error || new Error('Could not get an accurate location'))
+    }
+
+    watchId = navigator.geolocation.watchPosition(
       (position) => {
-        resolve({
-          latitude: position.coords.latitude,
-          longitude: position.coords.longitude,
-          accuracy: position.coords.accuracy,
-        })
+        const next = toCoords(position, 'device')
+        if (!best || !Number.isFinite(best.accuracy) || next.accuracy < best.accuracy) {
+          best = next
+        }
+        if (Number.isFinite(next.accuracy) && next.accuracy <= goodAccuracyM) {
+          finish(next)
+        }
       },
-      reject,
+      (error) => {
+        if (best) {
+          finish(best)
+          return
+        }
+        finish(null, error)
+      },
       {
         enableHighAccuracy: true,
-        timeout: 20_000,
         maximumAge: 0,
+        timeout: timeoutMs,
       },
     )
+
+    timer = window.setTimeout(() => {
+      if (best) {
+        finish(best)
+        return
+      }
+      finish(null, new Error('Location timed out — enable Windows Location services'))
+    }, timeoutMs)
   })
 }
 
-/** Network / IP locate through PrintStack API. */
+/** Network / IP locate through PrintStack API (city-level; last resort only). */
 export async function locateWithApi(idToken) {
   const payload = await locateViaApi(idToken)
   const location = payload.location || {}
@@ -43,6 +103,9 @@ export async function locateWithApi(idToken) {
     latitude,
     longitude,
     label: location.label || '',
+    // IP / cell tower locate is typically kilometers off.
+    accuracy: 50_000,
+    source: 'network',
   }
 }
 
@@ -76,13 +139,29 @@ export async function fetchRoute(idToken, origin, destination) {
   }
 }
 
+export function isAccurateEnough(coords, maxAccuracyM = MAX_ACCEPTABLE_ACCURACY_M) {
+  if (!coords) {
+    return false
+  }
+  const accuracy = Number(coords.accuracy)
+  if (!Number.isFinite(accuracy)) {
+    // Device sometimes omits accuracy — treat as usable only for device source.
+    return coords.source === 'device' || coords.source === 'manual'
+  }
+  return accuracy <= maxAccuracyM
+}
+
 /**
- * Prefer device GPS, then fall back to PrintStack API geolocation.
+ * Prefer refined device GPS/Wi‑Fi. Network/IP fallback only when explicitly allowed
+ * (first-time bootstrap with no saved shop pin).
  */
-export async function readTrackedCoords(idToken) {
+export async function readTrackedCoords(idToken, { allowNetworkFallback = false } = {}) {
   try {
     return await locateWithDevice()
-  } catch {
+  } catch (error) {
+    if (!allowNetworkFallback) {
+      throw error
+    }
     return locateWithApi(idToken)
   }
 }
