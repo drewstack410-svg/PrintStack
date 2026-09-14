@@ -26,19 +26,28 @@ function initial(name) {
 
 function createLogoPinOverlay(maps) {
   return class LogoPin extends maps.OverlayView {
-    constructor({ position, item, onClick }) {
+    constructor({ position, item, draggable, onClick, onDragEnd }) {
       super()
       this.position = position
       this.item = item
+      this.draggable = Boolean(draggable)
       this.onClick = onClick
+      this.onDragEnd = onDragEnd
       this.el = null
+      this.dragging = false
+      this.mapListeners = []
+      this._onPointerDown = this._onPointerDown.bind(this)
+      this._onPointerMove = this._onPointerMove.bind(this)
+      this._onPointerUp = this._onPointerUp.bind(this)
     }
 
     onAdd() {
       const wrap = document.createElement('button')
       wrap.type = 'button'
-      wrap.className = `ps-logo-pin${this.item.online ? ' is-online' : ''}`
-      wrap.title = this.item.name || 'Partner'
+      wrap.className = `ps-logo-pin${this.item.online ? ' is-online' : ''}${this.draggable ? ' is-draggable' : ''}`
+      wrap.title = this.draggable
+        ? `${this.item.name || 'Partner'} — drag to adjust`
+        : this.item.name || 'Partner'
       wrap.setAttribute('aria-label', this.item.name || 'Partner')
 
       const face = document.createElement('span')
@@ -48,6 +57,7 @@ function createLogoPinOverlay(maps) {
         const img = document.createElement('img')
         img.src = this.item.logoUrl
         img.alt = ''
+        img.draggable = false
         img.referrerPolicy = 'no-referrer'
         img.addEventListener('error', () => {
           img.remove()
@@ -70,11 +80,93 @@ function createLogoPinOverlay(maps) {
       wrap.append(face, tail)
       wrap.addEventListener('click', (event) => {
         event.stopPropagation()
+        if (this.dragging) {
+          return
+        }
         this.onClick?.(this)
       })
 
+      if (this.draggable) {
+        wrap.addEventListener('pointerdown', this._onPointerDown)
+      }
+
       this.el = wrap
       this.getPanes().overlayMouseTarget.appendChild(wrap)
+    }
+
+    _onPointerDown(event) {
+      if (!this.draggable || event.button !== 0) {
+        return
+      }
+      event.preventDefault()
+      event.stopPropagation()
+      this.dragging = true
+      this.moved = false
+      this.el?.classList.add('is-dragging')
+      this.el?.setPointerCapture?.(event.pointerId)
+
+      const map = this.getMap()
+      if (map) {
+        map.setOptions({ draggable: false, gestureHandling: 'none' })
+      }
+
+      window.addEventListener('pointermove', this._onPointerMove)
+      window.addEventListener('pointerup', this._onPointerUp)
+      window.addEventListener('pointercancel', this._onPointerUp)
+    }
+
+    _onPointerMove(event) {
+      if (!this.dragging) {
+        return
+      }
+      const projection = this.getProjection()
+      const map = this.getMap()
+      if (!projection || !map || !this.el) {
+        return
+      }
+
+      const bounds = this.el.getBoundingClientRect()
+      const mapDiv = map.getDiv().getBoundingClientRect()
+      const x = event.clientX - mapDiv.left
+      const y = event.clientY - mapDiv.top
+      const latLng = projection.fromContainerPixelToLatLng(new maps.Point(x, y + bounds.height * 0.35))
+      if (!latLng) {
+        return
+      }
+
+      this.moved = true
+      this.position = latLng
+      this.draw()
+    }
+
+    _onPointerUp() {
+      if (!this.dragging) {
+        return
+      }
+
+      window.removeEventListener('pointermove', this._onPointerMove)
+      window.removeEventListener('pointerup', this._onPointerUp)
+      window.removeEventListener('pointercancel', this._onPointerUp)
+
+      const map = this.getMap()
+      if (map) {
+        map.setOptions({ draggable: true, gestureHandling: 'auto' })
+      }
+
+      this.el?.classList.remove('is-dragging')
+      const moved = this.moved
+      const lat = this.position?.lat?.() ?? this.position?.lat
+      const lng = this.position?.lng?.() ?? this.position?.lng
+
+      // Keep click from firing after a drag.
+      window.setTimeout(() => {
+        this.dragging = false
+        this.moved = false
+      }, 0)
+
+      if (moved && Number.isFinite(lat) && Number.isFinite(lng)) {
+        this.onDragEnd?.({ lat, lng })
+      }
     }
 
     draw() {
@@ -93,6 +185,9 @@ function createLogoPinOverlay(maps) {
     }
 
     onRemove() {
+      window.removeEventListener('pointermove', this._onPointerMove)
+      window.removeEventListener('pointerup', this._onPointerUp)
+      window.removeEventListener('pointercancel', this._onPointerUp)
       this.el?.remove()
       this.el = null
     }
@@ -110,16 +205,11 @@ export default function PartnerLocationMap({
   const infoRef = useRef(null)
   const clickListenerRef = useRef(null)
   const onPickRef = useRef(onLocationPick)
-  const editableRef = useRef(editable)
   const fittedKeyRef = useRef('')
 
   useEffect(() => {
     onPickRef.current = onLocationPick
   }, [onLocationPick])
-
-  useEffect(() => {
-    editableRef.current = editable
-  }, [editable])
 
   useEffect(() => {
     let cancelled = false
@@ -151,35 +241,38 @@ export default function PartnerLocationMap({
         clickListenerRef.current = null
       }
 
-      if (editable) {
-        clickListenerRef.current = map.addListener('click', (event) => {
-          if (!editableRef.current || !event?.latLng) {
-            return
-          }
-          const lat = event.latLng.lat()
-          const lng = event.latLng.lng()
-          onPickRef.current?.({ lat, lng })
-        })
-        map.setOptions({ draggableCursor: 'crosshair' })
-      } else {
-        map.setOptions({ draggableCursor: null })
-      }
-
       overlaysRef.current.forEach((marker) => marker.setMap(null))
       overlaysRef.current = []
 
       const points = markers.filter((item) => Number.isFinite(item.lat) && Number.isFinite(item.lng))
       const bounds = new maps.LatLngBounds()
 
+      // No pin yet — click the map once to drop one.
+      if (editable && points.length === 0) {
+        clickListenerRef.current = map.addListener('click', (event) => {
+          if (!event?.latLng) {
+            return
+          }
+          onPickRef.current?.({ lat: event.latLng.lat(), lng: event.latLng.lng() })
+        })
+        map.setOptions({ draggableCursor: 'crosshair' })
+      } else {
+        map.setOptions({ draggableCursor: null })
+      }
+
       points.forEach((item) => {
         const position = new maps.LatLng(item.lat, item.lng)
         const pin = new LogoPin({
           position,
           item,
+          draggable: editable && points.length === 1,
           onClick: () => {
             info.setContent(popupHtml(item))
-            info.setPosition(position)
+            info.setPosition(pin.position)
             info.open({ map })
+          },
+          onDragEnd: ({ lat, lng }) => {
+            onPickRef.current?.({ lat, lng })
           },
         })
         pin.setMap(map)
@@ -187,12 +280,14 @@ export default function PartnerLocationMap({
         bounds.extend(position)
       })
 
-      const fitKey = points.map((item) => `${item.id}:${item.lat}:${item.lng}`).join('|')
+      const fitKey = points.map((item) => `${item.id}:${item.lat.toFixed(5)}:${item.lng.toFixed(5)}`).join('|')
       if (fitKey !== fittedKeyRef.current) {
         fittedKeyRef.current = fitKey
         if (points.length === 1) {
-          map.setCenter({ lat: points[0].lat, lng: points[0].lng })
-          map.setZoom(DEFAULT_MAP_ZOOM)
+          map.panTo({ lat: points[0].lat, lng: points[0].lng })
+          if (map.getZoom() < DEFAULT_MAP_ZOOM - 1) {
+            map.setZoom(DEFAULT_MAP_ZOOM)
+          }
         } else if (points.length > 1) {
           map.fitBounds(bounds, 48)
         } else {
