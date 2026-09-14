@@ -34,6 +34,21 @@ function formatWhen(iso) {
   })
 }
 
+function formatPrintMode(job) {
+  const bw = Number(job.bwPages) || 0
+  const color = Number(job.colorPages) || 0
+  if (bw > 0 && color > 0) {
+    return `${bw} B&W · ${color} color`
+  }
+  if (job.colorMode === 'mixed') {
+    return 'Mixed'
+  }
+  if (color > 0 || job.colorMode === 'color') {
+    return 'Color'
+  }
+  return 'B&W'
+}
+
 export default function PrintJobsTable({ jobs }) {
   if (!jobs.length) {
     return null
@@ -75,7 +90,7 @@ export default function PrintJobsTable({ jobs }) {
                     : job.printerName || '—'}
                 </Typography>
                 <Typography variant="caption" color="text.secondary" display="block">
-                  {job.colorMode === 'color' ? 'Color' : 'B&W'}
+                  {formatPrintMode(job)}
                   {Number(job.pages) > 1 ? ` · ${job.pages} pages` : ''}
                   {Number(job.totalPrice) > 0 ? ` · ₱${Number(job.totalPrice).toFixed(2)}` : ''}
                 </Typography>

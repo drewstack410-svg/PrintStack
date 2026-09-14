@@ -10,6 +10,32 @@ function jobsRef(partnerId) {
 
 function mapJob(doc) {
   const data = doc.data() || {}
+  const pages = Number(data.pages) || 1
+  let bwPages = Math.max(0, Number(data.bwPages) || 0)
+  let colorPages = Math.max(0, Number(data.colorPages) || 0)
+  if (bwPages + colorPages <= 0) {
+    if (data.colorMode === 'color') {
+      colorPages = pages
+      bwPages = 0
+    } else if (data.colorMode === 'mixed') {
+      // Unknown split on older mixed jobs — show pages only.
+      bwPages = 0
+      colorPages = 0
+    } else {
+      bwPages = pages
+      colorPages = 0
+    }
+  }
+
+  const colorMode =
+    data.colorMode === 'color' || data.colorMode === 'mixed'
+      ? data.colorMode
+      : colorPages > 0 && bwPages > 0
+        ? 'mixed'
+        : colorPages > 0
+          ? 'color'
+          : 'bw'
+
   return {
     id: doc.id,
     documentName: data.documentName || '',
@@ -23,9 +49,13 @@ function mapJob(doc) {
     paperSizeId: data.paperSizeId || '',
     paperSizeName: data.paperSizeName || '',
     copies: Number(data.copies) || 1,
-    pages: Number(data.pages) || 1,
-    colorMode: data.colorMode === 'color' ? 'color' : 'bw',
+    pages,
+    bwPages,
+    colorPages,
+    colorMode,
     pricePerPiece: Number(data.pricePerPiece) || 0,
+    priceBw: Number(data.priceBw) || 0,
+    priceColor: Number(data.priceColor) || 0,
     totalPrice: Number(data.totalPrice) || 0,
     customerUid: data.customerUid || '',
     customerEmail: data.customerEmail || '',
@@ -114,7 +144,37 @@ async function createCustomerPrintJob(req, res) {
   const paperSizeId = String(req.body.paperSizeId || '').trim()
   const copies = Math.max(1, Math.min(100, Number(req.body.copies) || 1))
   const pages = Math.max(1, Math.min(500, Number(req.body.pages) || 1))
-  const colorMode = String(req.body.colorMode || '').toLowerCase() === 'color' ? 'color' : 'bw'
+  const rawBw = Number(req.body.bwPages)
+  const rawColor = Number(req.body.colorPages)
+  const hasPageSplit = Number.isFinite(rawBw) || Number.isFinite(rawColor)
+  let bwPages = Number.isFinite(rawBw) ? Math.max(0, Math.min(500, rawBw)) : 0
+  let colorPages = Number.isFinite(rawColor) ? Math.max(0, Math.min(500, rawColor)) : 0
+  const requestedMode = String(req.body.colorMode || '').toLowerCase()
+
+  // Prefer explicit per-page counts; fall back to legacy single colorMode.
+  if (!hasPageSplit) {
+    if (requestedMode === 'color') {
+      colorPages = pages
+      bwPages = 0
+    } else {
+      bwPages = pages
+      colorPages = 0
+    }
+  } else {
+    const counted = bwPages + colorPages
+    if (counted <= 0) {
+      bwPages = pages
+      colorPages = 0
+    } else if (counted !== pages) {
+      // Keep the detected split but normalize to reported page total.
+      const scale = pages / counted
+      bwPages = Math.round(bwPages * scale)
+      colorPages = Math.max(0, pages - bwPages)
+    }
+  }
+
+  const colorMode =
+    colorPages > 0 && bwPages > 0 ? 'mixed' : colorPages > 0 ? 'color' : 'bw'
 
   if (!documentName || !fileUrl || !paperSizeId) {
     res.status(400).json({ error: 'Document, file, and paper size are required' })
@@ -128,11 +188,13 @@ async function createCustomerPrintJob(req, res) {
     return
   }
 
+  const priceBw = Number(paperSize.priceBw ?? paperSize.pricePerPiece) || 0
+  const priceColor = Number(paperSize.priceColor) || 0
   const pricePerPiece =
-    colorMode === 'color'
-      ? Number(paperSize.priceColor) || 0
-      : Number(paperSize.priceBw ?? paperSize.pricePerPiece) || 0
-  const totalPrice = Number((pricePerPiece * copies * pages).toFixed(2))
+    colorMode === 'color' ? priceColor : colorMode === 'mixed' ? 0 : priceBw
+  const totalPrice = Number(
+    ((bwPages * priceBw + colorPages * priceColor) * copies).toFixed(2),
+  )
   const customerName = [req.profile?.firstName, req.profile?.lastName]
     .filter(Boolean)
     .join(' ')
@@ -155,7 +217,11 @@ async function createCustomerPrintJob(req, res) {
     paperUnit: paperSize.unit,
     copies,
     pages,
+    bwPages,
+    colorPages,
     colorMode,
+    priceBw,
+    priceColor,
     pricePerPiece,
     totalPrice,
     customerUid: req.user.uid,

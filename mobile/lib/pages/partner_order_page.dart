@@ -22,7 +22,8 @@ class _PartnerOrderPageState extends State<PartnerOrderPage> {
   PaperSize? _selectedSize;
   int _copies = 1;
   int _pages = 1;
-  bool _isColor = false;
+  int _bwPages = 1;
+  int _colorPages = 0;
   bool _colorDetected = false;
   bool _readingPdf = false;
   bool _submitting = false;
@@ -31,15 +32,33 @@ class _PartnerOrderPageState extends State<PartnerOrderPage> {
 
   List<PaperSize> get _sizes => widget.partner.paperSizes;
 
-  double get _unitPrice {
-    final size = _selectedSize;
-    if (size == null) {
-      return 0;
-    }
-    return size.priceFor(color: _isColor);
+  double get _bwUnit => _selectedSize?.priceBw ?? 0;
+  double get _colorUnit => _selectedSize?.priceColor ?? 0;
+
+  double get _total {
+    final pageTotal = (_bwPages * _bwUnit) + (_colorPages * _colorUnit);
+    return pageTotal * _copies;
   }
 
-  double get _total => _unitPrice * _copies * _pages;
+  String get _pageBreakdown {
+    if (_colorPages > 0 && _bwPages > 0) {
+      return '$_bwPages B&W · $_colorPages color';
+    }
+    if (_colorPages > 0) {
+      return '$_colorPages color page${_colorPages == 1 ? '' : 's'}';
+    }
+    return '$_bwPages B&W page${_bwPages == 1 ? '' : 's'}';
+  }
+
+  String get _colorModeLabel {
+    if (_colorPages > 0 && _bwPages > 0) {
+      return 'Mixed';
+    }
+    if (_colorPages > 0) {
+      return 'Color';
+    }
+    return 'Black & white';
+  }
 
   @override
   void initState() {
@@ -47,6 +66,13 @@ class _PartnerOrderPageState extends State<PartnerOrderPage> {
     if (_sizes.isNotEmpty) {
       _selectedSize = _sizes.first;
     }
+  }
+
+  void _resetDetection({int pages = 1}) {
+    _pages = pages;
+    _bwPages = pages;
+    _colorPages = 0;
+    _colorDetected = false;
   }
 
   Future<void> _pickPdf() async {
@@ -73,9 +99,7 @@ class _PartnerOrderPageState extends State<PartnerOrderPage> {
     setState(() {
       _picked = file;
       _readingPdf = true;
-      _pages = 1;
-      _isColor = false;
-      _colorDetected = false;
+      _resetDetection();
     });
 
     final info = await analyzePdfSafe(file.path!);
@@ -85,9 +109,24 @@ class _PartnerOrderPageState extends State<PartnerOrderPage> {
 
     setState(() {
       _pages = info.pages;
-      _isColor = info.isColor;
+      _bwPages = info.bwPages;
+      _colorPages = info.colorPages;
       _colorDetected = true;
       _readingPdf = false;
+    });
+  }
+
+  void _forceAllBw() {
+    setState(() {
+      _bwPages = _pages;
+      _colorPages = 0;
+    });
+  }
+
+  void _forceAllColor() {
+    setState(() {
+      _colorPages = _pages;
+      _bwPages = 0;
     });
   }
 
@@ -124,7 +163,8 @@ class _PartnerOrderPageState extends State<PartnerOrderPage> {
         paperSizeId: size.id,
         copies: _copies,
         pages: _pages,
-        colorMode: _isColor ? 'color' : 'bw',
+        bwPages: _bwPages,
+        colorPages: _colorPages,
       );
 
       if (!mounted) {
@@ -133,11 +173,9 @@ class _PartnerOrderPageState extends State<PartnerOrderPage> {
 
       setState(() {
         _success =
-            'Uploaded $_pages page${_pages == 1 ? '' : 's'} (${_isColor ? 'color' : 'B&W'}). Waiting for partner desktop.';
+            'Uploaded $_pages page${_pages == 1 ? '' : 's'} ($_pageBreakdown). Waiting for partner desktop.';
         _picked = null;
-        _pages = 1;
-        _isColor = false;
-        _colorDetected = false;
+        _resetDetection();
       });
     } on ApiException catch (error) {
       if (mounted) {
@@ -237,8 +275,8 @@ class _PartnerOrderPageState extends State<PartnerOrderPage> {
                             const SizedBox(height: 4),
                             Text(
                               _readingPdf
-                                  ? 'Auto-detecting pages & color…'
-                                  : '$_pages page${_pages == 1 ? '' : 's'} · Auto-detected: ${_isColor ? 'Color' : 'Black & white'}',
+                                  ? 'Detecting each page (B&W vs color)…'
+                                  : '$_pages page${_pages == 1 ? '' : 's'} · $_pageBreakdown',
                               style: const TextStyle(
                                 color: AppColors.muted,
                                 fontSize: 13,
@@ -270,42 +308,67 @@ class _PartnerOrderPageState extends State<PartnerOrderPage> {
                 color: Colors.white,
                 borderRadius: BorderRadius.circular(16),
               ),
-              child: Row(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Icon(
-                    _isColor ? Icons.palette_outlined : Icons.filter_b_and_w,
-                    color: _isColor ? AppColors.purple : AppColors.navy,
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          _isColor ? 'Color document' : 'Black & white document',
-                          style: const TextStyle(
-                            fontWeight: FontWeight.w800,
-                            color: AppColors.navy,
-                          ),
+                  Row(
+                    children: [
+                      Icon(
+                        _colorPages > 0
+                            ? Icons.palette_outlined
+                            : Icons.filter_b_and_w,
+                        color: _colorPages > 0
+                            ? AppColors.purple
+                            : AppColors.navy,
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              _colorModeLabel,
+                              style: const TextStyle(
+                                fontWeight: FontWeight.w800,
+                                color: AppColors.navy,
+                              ),
+                            ),
+                            const SizedBox(height: 2),
+                            Text(
+                              _colorDetected
+                                  ? 'Counted every page from the PDF'
+                                  : 'Could not fully analyze; priced as B&W',
+                              style: const TextStyle(
+                                color: AppColors.muted,
+                                fontSize: 12,
+                              ),
+                            ),
+                          ],
                         ),
-                        const SizedBox(height: 2),
-                        Text(
-                          _colorDetected
-                              ? 'Detected automatically from the PDF'
-                              : 'Could not fully analyze; priced as B&W',
-                          style: const TextStyle(
-                            color: AppColors.muted,
-                            fontSize: 12,
-                          ),
-                        ),
-                      ],
-                    ),
+                      ),
+                    ],
                   ),
-                  TextButton(
-                    onPressed: _submitting
-                        ? null
-                        : () => setState(() => _isColor = !_isColor),
-                    child: Text(_isColor ? 'Use B&W' : 'Use Color'),
+                  const SizedBox(height: 12),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: OutlinedButton(
+                          onPressed: _submitting || _bwPages == _pages
+                              ? null
+                              : _forceAllBw,
+                          child: const Text('All B&W'),
+                        ),
+                      ),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: OutlinedButton(
+                          onPressed: _submitting || _colorPages == _pages
+                              ? null
+                              : _forceAllColor,
+                          child: const Text('All Color'),
+                        ),
+                      ),
+                    ],
                   ),
                 ],
               ),
@@ -453,17 +516,21 @@ class _PartnerOrderPageState extends State<PartnerOrderPage> {
               children: [
                 _PriceRow(label: 'Pages', value: '$_pages'),
                 const SizedBox(height: 8),
-                _PriceRow(label: 'Copies', value: '$_copies'),
+                _PriceRow(label: 'B&W pages', value: '$_bwPages'),
                 const SizedBox(height: 8),
-                _PriceRow(
-                  label: 'Print mode',
-                  value: _isColor ? 'Color' : 'Black & white',
-                ),
+                _PriceRow(label: 'Color pages', value: '$_colorPages'),
+                const SizedBox(height: 8),
+                _PriceRow(label: 'Copies', value: '$_copies'),
                 if (size != null) ...[
                   const SizedBox(height: 8),
                   _PriceRow(
-                    label: 'Price / page',
-                    value: '₱${_unitPrice.toStringAsFixed(2)}',
+                    label: 'B&W / page',
+                    value: '₱${_bwUnit.toStringAsFixed(2)}',
+                  ),
+                  const SizedBox(height: 8),
+                  _PriceRow(
+                    label: 'Color / page',
+                    value: '₱${_colorUnit.toStringAsFixed(2)}',
                   ),
                 ],
                 const Divider(height: 24),
@@ -491,7 +558,7 @@ class _PartnerOrderPageState extends State<PartnerOrderPage> {
                 Align(
                   alignment: Alignment.centerRight,
                   child: Text(
-                    '$_pages pages × $_copies copies × ${_isColor ? 'color' : 'B&W'}',
+                    '($_bwPages × ₱${_bwUnit.toStringAsFixed(2)} + $_colorPages × ₱${_colorUnit.toStringAsFixed(2)}) × $_copies',
                     style: const TextStyle(
                       color: AppColors.muted,
                       fontSize: 12,

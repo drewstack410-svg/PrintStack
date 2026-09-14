@@ -8,60 +8,73 @@ import 'package:pdfrx/pdfrx.dart';
 class PdfDocumentInfo {
   const PdfDocumentInfo({
     required this.pages,
-    required this.isColor,
+    required this.colorPages,
+    required this.bwPages,
     this.detectionSource = 'pixels',
   });
 
   final int pages;
-  final bool isColor;
+  final int colorPages;
+  final int bwPages;
   final String detectionSource;
+
+  bool get hasColor => colorPages > 0;
+  bool get isMixed => colorPages > 0 && bwPages > 0;
+
+  /// Legacy single-mode flag: true when any page looks colored.
+  bool get isColor => hasColor;
 }
 
-/// Returns page count and whether the PDF appears to contain color.
+/// Returns page count and per-page B&W vs color classification.
 Future<PdfDocumentInfo> analyzePdf(String filePath) async {
   final doc = await PdfDocument.openFile(filePath);
   try {
     final pages = doc.pages.isEmpty ? 1 : doc.pages.length;
-    var isColor = false;
+    var colorPages = 0;
+    var bwPages = 0;
     var renderedAny = false;
 
-    // Sample more pages at a higher resolution for better color detection.
-    final sampleCount = math.min(pages, 5);
-    for (var i = 0; i < sampleCount; i++) {
+    for (var i = 0; i < pages; i++) {
       final page = await doc.pages[i].ensureLoaded();
-      final fullWidth = 240.0;
+      final fullWidth = 200.0;
       final fullHeight = fullWidth * (page.height / math.max(page.width, 1));
       final image = await page.render(
         fullWidth: fullWidth,
         fullHeight: fullHeight,
       );
       if (image == null) {
+        bwPages += 1;
         continue;
       }
       renderedAny = true;
       try {
         if (_pixelsLookColor(image.pixels, image.width, image.height)) {
-          isColor = true;
-          break;
+          colorPages += 1;
+        } else {
+          bwPages += 1;
         }
       } finally {
         image.dispose();
       }
     }
 
-    // If rendering failed, fall back to PDF content heuristics.
+    // If rendering failed entirely, fall back to PDF content heuristics.
     if (!renderedAny) {
       final bytes = await File(filePath).readAsBytes();
+      final allColor = _bytesSuggestColor(bytes);
       return PdfDocumentInfo(
         pages: pages < 1 ? 1 : pages,
-        isColor: _bytesSuggestColor(bytes),
+        colorPages: allColor ? (pages < 1 ? 1 : pages) : 0,
+        bwPages: allColor ? 0 : (pages < 1 ? 1 : pages),
         detectionSource: 'content',
       );
     }
 
+    final total = colorPages + bwPages;
     return PdfDocumentInfo(
-      pages: pages < 1 ? 1 : pages,
-      isColor: isColor,
+      pages: total < 1 ? 1 : total,
+      colorPages: colorPages,
+      bwPages: bwPages < 1 && colorPages < 1 ? 1 : bwPages,
       detectionSource: 'pixels',
     );
   } finally {
@@ -76,13 +89,21 @@ Future<PdfDocumentInfo> analyzePdfSafe(String filePath) async {
     debugPrint('PDF color analysis failed: $error\n$stack');
     try {
       final bytes = await File(filePath).readAsBytes();
+      final pages = estimatePdfPagesFromBytes(bytes);
+      final allColor = _bytesSuggestColor(bytes);
       return PdfDocumentInfo(
-        pages: estimatePdfPagesFromBytes(bytes),
-        isColor: _bytesSuggestColor(bytes),
+        pages: pages,
+        colorPages: allColor ? pages : 0,
+        bwPages: allColor ? 0 : pages,
         detectionSource: 'content',
       );
     } catch (_) {
-      return const PdfDocumentInfo(pages: 1, isColor: false, detectionSource: 'fallback');
+      return const PdfDocumentInfo(
+        pages: 1,
+        colorPages: 0,
+        bwPages: 1,
+        detectionSource: 'fallback',
+      );
     }
   }
 }

@@ -132,8 +132,18 @@ class ApiClient {
     required String paperSizeId,
     required int copies,
     int pages = 1,
+    int bwPages = 1,
+    int colorPages = 0,
     String colorMode = 'bw',
   }) {
+    final resolvedMode = colorPages > 0 && bwPages > 0
+        ? 'mixed'
+        : colorPages > 0
+            ? 'color'
+            : colorMode == 'color'
+                ? 'color'
+                : 'bw';
+
     return _request(
       'POST',
       '/api/partners/$partnerId/print-jobs',
@@ -144,7 +154,9 @@ class ApiClient {
         'paperSizeId': paperSizeId,
         'copies': copies,
         'pages': pages,
-        'colorMode': colorMode,
+        'bwPages': bwPages,
+        'colorPages': colorPages,
+        'colorMode': resolvedMode,
       },
     );
   }
