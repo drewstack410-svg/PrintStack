@@ -10,6 +10,15 @@ const port = Number(process.env.PORT) || 3001
 
 app.use(cors({ origin: true }))
 app.use(express.json())
+
+app.get('/', (_req, res) => {
+  res.json({
+    ok: true,
+    service: 'printstack-api',
+    message: 'PrintStack API is running',
+  })
+})
+
 app.use('/api', router)
 
 app.use((error, _req, res, next) => {
