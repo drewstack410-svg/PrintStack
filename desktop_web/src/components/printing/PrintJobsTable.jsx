@@ -2,7 +2,7 @@ import { Chip, Paper, Table, TableBody, TableCell, TableContainer, TableHead, Ta
 
 const STATUS_LABELS = {
   sending: 'Sending',
-  queued: 'Not printed',
+  queued: 'Queued',
   printing: 'Printing',
   printed: 'Printed',
   failed: 'Failed',
@@ -48,8 +48,9 @@ export default function PrintJobsTable({ jobs }) {
       <Table size="small">
         <TableHead>
           <TableRow sx={{ bgcolor: 'action.hover', '& th': { fontWeight: 700, color: 'text.secondary', py: 0.75, fontSize: 13 } }}>
-            <TableCell>Test print</TableCell>
-            <TableCell>Printer</TableCell>
+            <TableCell>Document</TableCell>
+            <TableCell>Layout</TableCell>
+            <TableCell>Source</TableCell>
             <TableCell>When</TableCell>
             <TableCell align="right">Status</TableCell>
           </TableRow>
@@ -59,12 +60,29 @@ export default function PrintJobsTable({ jobs }) {
             <TableRow key={job.id} hover sx={{ '& td': { py: 0.75, borderColor: 'divider' }, '&:last-of-type td': { borderBottom: 0 } }}>
               <TableCell>
                 <Typography variant="body2" fontWeight={700} noWrap>
-                  {job.documentName || 'Test print'}
+                  {job.documentName || 'Print job'}
                 </Typography>
+                {job.customerName || job.customerEmail ? (
+                  <Typography variant="caption" color="text.secondary" noWrap display="block">
+                    {job.customerName || job.customerEmail}
+                  </Typography>
+                ) : null}
               </TableCell>
               <TableCell>
                 <Typography variant="body2" color="text.secondary" noWrap>
-                  {job.printerName}
+                  {job.paperSizeName
+                    ? `${job.paperSizeName} · ×${job.copies || 1}`
+                    : job.printerName || '—'}
+                </Typography>
+                {Number(job.totalPrice) > 0 ? (
+                  <Typography variant="caption" color="text.secondary">
+                    ₱{Number(job.totalPrice).toFixed(2)}
+                  </Typography>
+                ) : null}
+              </TableCell>
+              <TableCell>
+                <Typography variant="body2" color="text.secondary">
+                  {job.source === 'mobile' ? 'Mobile' : 'Desktop'}
                 </Typography>
               </TableCell>
               <TableCell sx={{ whiteSpace: 'nowrap' }}>

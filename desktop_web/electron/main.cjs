@@ -204,6 +204,62 @@ app.whenReady().then(() => {
     return { ok: true, trackId, status: 'queued' }
   })
 
+  ipcMain.handle('printers:printPdf', async (event, payload = {}) => {
+    const deviceName = String(payload.deviceName || '').trim()
+    const fileUrl = String(payload.fileUrl || '').trim()
+    if (!deviceName) {
+      throw new Error('Select a printer first')
+    }
+    if (!fileUrl) {
+      throw new Error('Print file is missing')
+    }
+
+    const trackId = String(payload.trackId || `track-${Date.now()}`)
+    const documentName = String(payload.documentName || `Printstack-${Date.now()}`)
+    const copies = Math.max(1, Math.min(50, Number(payload.copies) || 1))
+    const preview = new BrowserWindow({
+      show: false,
+      width: 900,
+      height: 1200,
+      webPreferences: {
+        sandbox: true,
+        contextIsolation: true,
+      },
+    })
+
+    try {
+      await loadUrl(preview, fileUrl)
+      await sleep(800)
+      for (let i = 0; i < copies; i += 1) {
+        await silentPrint(preview, deviceName)
+        if (i < copies - 1) {
+          await sleep(600)
+        }
+      }
+      await sleep(1200)
+    } catch (error) {
+      sendJobStatus(event.sender, {
+        trackId,
+        status: 'failed',
+        rawStatus: error.message,
+      })
+      throw error
+    } finally {
+      if (!preview.isDestroyed()) {
+        preview.close()
+      }
+    }
+
+    sendJobStatus(event.sender, { trackId, status: 'queued', rawStatus: 'Submitted' })
+    watchPrintJob({
+      sender: event.sender,
+      trackId,
+      deviceName,
+      documentName,
+    })
+    return { ok: true, trackId, status: 'queued' }
+  })
+
   createWindow()
 
   app.on('activate', () => {
@@ -242,6 +298,21 @@ function loadHtml(win, html) {
       reject(new Error(description || 'Could not load print page'))
     })
     win.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(html)}`)
+  })
+}
+
+function loadUrl(win, url) {
+  return new Promise((resolve, reject) => {
+    const timeout = setTimeout(() => reject(new Error('PDF load timed out')), 45000)
+    win.webContents.once('did-finish-load', () => {
+      clearTimeout(timeout)
+      resolve()
+    })
+    win.webContents.once('did-fail-load', (_event, _code, description) => {
+      clearTimeout(timeout)
+      reject(new Error(description || 'Could not load PDF'))
+    })
+    win.loadURL(url)
   })
 }
 

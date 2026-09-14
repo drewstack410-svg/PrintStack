@@ -19,6 +19,7 @@ contextBridge.exposeInMainWorld('printstack', {
   printers: {
     list: () => ipcRenderer.invoke('printers:list'),
     testPrint: (payload) => ipcRenderer.invoke('printers:testPrint', payload),
+    printPdf: (payload) => ipcRenderer.invoke('printers:printPdf', payload),
     onJobStatus: (callback) => {
       const listener = (_event, payload) => callback(payload)
       ipcRenderer.on('printers:jobStatus', listener)

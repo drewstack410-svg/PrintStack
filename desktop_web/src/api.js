@@ -153,11 +153,11 @@ export function deletePaperSize(idToken, id) {
 }
 
 export function listPrintJobs(idToken) {
-  return authorizedJson('/print-jobs', idToken)
+  return authorizedJson('/api/print-jobs', idToken)
 }
 
 export function createPrintJob(idToken, body) {
-  return authorizedJson('/print-jobs', idToken, {
+  return authorizedJson('/api/print-jobs', idToken, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
@@ -165,7 +165,7 @@ export function createPrintJob(idToken, body) {
 }
 
 export function updatePrintJob(idToken, id, body) {
-  return authorizedJson(`/print-jobs/${id}`, idToken, {
+  return authorizedJson(`/api/print-jobs/${id}`, idToken, {
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),

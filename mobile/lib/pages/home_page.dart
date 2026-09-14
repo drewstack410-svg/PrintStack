@@ -7,6 +7,7 @@ import '../auth/auth_service.dart';
 import '../models/partner.dart';
 import '../services/partners_repository.dart';
 import '../theme.dart';
+import 'partner_order_page.dart';
 
 class HomePage extends StatefulWidget {
   const HomePage({super.key});
@@ -116,7 +117,16 @@ class _HomePageState extends State<HomePage> {
                   ...partners.map(
                     (partner) => Padding(
                       padding: const EdgeInsets.only(bottom: 12),
-                      child: _PartnerTile(partner: partner),
+                      child: _PartnerTile(
+                        partner: partner,
+                        onTap: () {
+                          Navigator.of(context).push(
+                            MaterialPageRoute<void>(
+                              builder: (_) => PartnerOrderPage(partner: partner),
+                            ),
+                          );
+                        },
+                      ),
                     ),
                   ),
                 ],
@@ -148,9 +158,10 @@ class _Greeting extends StatelessWidget {
 }
 
 class _PartnerTile extends StatelessWidget {
-  const _PartnerTile({required this.partner});
+  const _PartnerTile({required this.partner, required this.onTap});
 
   final Partner partner;
+  final VoidCallback onTap;
 
   @override
   Widget build(BuildContext context) {
@@ -164,59 +175,65 @@ class _PartnerTile extends StatelessWidget {
     return Material(
       color: Colors.white,
       borderRadius: BorderRadius.circular(16),
-      child: Padding(
-        padding: const EdgeInsets.all(14),
-        child: Row(
-          children: [
-            _Logo(url: partner.logoUrl, name: partner.companyName),
-            const SizedBox(width: 14),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    partner.companyName.isEmpty
-                        ? 'Untitled partner'
-                        : partner.companyName,
-                    style: const TextStyle(
-                      fontSize: 16,
-                      fontWeight: FontWeight.w700,
-                      color: AppColors.navy,
-                    ),
-                  ),
-                  if (subtitle.isNotEmpty) ...[
-                    const SizedBox(height: 4),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(16),
+        onTap: onTap,
+        child: Padding(
+          padding: const EdgeInsets.all(14),
+          child: Row(
+            children: [
+              _Logo(url: partner.logoUrl, name: partner.companyName),
+              const SizedBox(width: 14),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
                     Text(
-                      subtitle,
+                      partner.companyName.isEmpty
+                          ? 'Untitled partner'
+                          : partner.companyName,
                       style: const TextStyle(
-                        color: AppColors.muted,
-                        fontSize: 13,
+                        fontSize: 16,
+                        fontWeight: FontWeight.w700,
+                        color: AppColors.navy,
                       ),
                     ),
+                    if (subtitle.isNotEmpty) ...[
+                      const SizedBox(height: 4),
+                      Text(
+                        subtitle,
+                        style: const TextStyle(
+                          color: AppColors.muted,
+                          fontSize: 13,
+                        ),
+                      ),
+                    ],
                   ],
-                ],
-              ),
-            ),
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-              decoration: BoxDecoration(
-                color: location?.online == true
-                    ? const Color(0xFFE8F5E9)
-                    : const Color(0xFFF3F4F6),
-                borderRadius: BorderRadius.circular(999),
-              ),
-              child: Text(
-                location?.online == true ? 'Online' : 'Offline',
-                style: TextStyle(
-                  fontSize: 12,
-                  fontWeight: FontWeight.w700,
-                  color: location?.online == true
-                      ? const Color(0xFF1B5E20)
-                      : AppColors.muted,
                 ),
               ),
-            ),
-          ],
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                decoration: BoxDecoration(
+                  color: location?.online == true
+                      ? const Color(0xFFE8F5E9)
+                      : const Color(0xFFF3F4F6),
+                  borderRadius: BorderRadius.circular(999),
+                ),
+                child: Text(
+                  location?.online == true ? 'Online' : 'Offline',
+                  style: TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w700,
+                    color: location?.online == true
+                        ? const Color(0xFF1B5E20)
+                        : AppColors.muted,
+                  ),
+                ),
+              ),
+              const SizedBox(width: 6),
+              const Icon(Icons.chevron_right, color: AppColors.muted),
+            ],
+          ),
         ),
       ),
     );

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import AddIcon from '@mui/icons-material/Add'
 import PrintIcon from '@mui/icons-material/Print'
 import RefreshIcon from '@mui/icons-material/Refresh'
@@ -36,6 +36,17 @@ export default function PrintingPage() {
   const [deletingSize, setDeletingSize] = useState(null)
   const [deletingNow, setDeletingNow] = useState(false)
   const [printJobs, setPrintJobs] = useState([])
+  const autoPrinted = useRef(new Set())
+  const selectedRef = useRef(selected)
+  const printersRef = useRef(printers)
+
+  useEffect(() => {
+    selectedRef.current = selected
+  }, [selected])
+
+  useEffect(() => {
+    printersRef.current = printers
+  }, [printers])
 
   const loadPrinters = useCallback(async () => {
     if (!printersApi) {
@@ -109,11 +120,7 @@ export default function PrintingPage() {
 
   useEffect(() => {
     const active = printJobs.some((job) => job.status === 'sending' || job.status === 'queued' || job.status === 'printing')
-    if (!active) {
-      return undefined
-    }
-
-    const timer = window.setInterval(loadPrintJobs, 2000)
+    const timer = window.setInterval(loadPrintJobs, active ? 2000 : 8000)
     return () => window.clearInterval(timer)
   }, [loadPrintJobs, printJobs])
 
@@ -142,6 +149,82 @@ export default function PrintingPage() {
       }
     })
   }, [printersApi, user])
+
+  useEffect(() => {
+    if (!printersApi?.printPdf || !user || !selected) {
+      return undefined
+    }
+
+    const pending = printJobs.filter(
+      (job) =>
+        job.source === 'mobile' &&
+        job.fileUrl &&
+        job.status === 'queued' &&
+        !autoPrinted.current.has(job.id),
+    )
+
+    if (!pending.length) {
+      return undefined
+    }
+
+    let cancelled = false
+
+    async function processQueue() {
+      for (const job of pending) {
+        if (cancelled) {
+          return
+        }
+        autoPrinted.current.add(job.id)
+        const deviceName = selectedRef.current
+        const printer = printersRef.current.find((item) => item.name === deviceName)
+        const printerName = printer?.displayName || printer?.name || deviceName
+
+        try {
+          const token = await user.getIdToken()
+          await updatePrintJob(token, job.id, {
+            status: 'sending',
+            rawStatus: 'Sending to printer',
+            printerName,
+            deviceName,
+          })
+          setPrintJobs((current) =>
+            current.map((item) =>
+              item.id === job.id
+                ? { ...item, status: 'sending', printerName, deviceName }
+                : item,
+            ),
+          )
+
+          await printersApi.printPdf({
+            trackId: job.id,
+            documentName: job.documentName,
+            fileUrl: job.fileUrl,
+            copies: job.copies || 1,
+            deviceName,
+            printerName,
+          })
+          setSuccess(`Printing ${job.documentName}`)
+        } catch (err) {
+          autoPrinted.current.delete(job.id)
+          try {
+            const token = await user.getIdToken()
+            await updatePrintJob(token, job.id, {
+              status: 'failed',
+              rawStatus: err.message || 'Print failed',
+            })
+          } catch {
+            // Ignore follow-up write errors.
+          }
+          setError(err.message || `Could not print ${job.documentName}`)
+        }
+      }
+    }
+
+    processQueue()
+    return () => {
+      cancelled = true
+    }
+  }, [printJobs, printersApi, selected, user])
 
   async function handleTestPrint() {
     if (!printersApi || !selected || !user) {
@@ -172,10 +255,11 @@ export default function PrintingPage() {
           printerName,
           deviceName: selected,
           status: 'sending',
+          source: 'desktop',
         }
         console.warn('[print] could not save print job', apiError)
       }
-      setPrintJobs((current) => [job, ...current.filter((item) => item.id !== job.id)].slice(0, 12))
+      setPrintJobs((current) => [job, ...current.filter((item) => item.id !== job.id)].slice(0, 30))
 
       await printersApi.testPrint({
         trackId: job.id,
@@ -282,7 +366,11 @@ export default function PrintingPage() {
         <Alert severity="info" sx={{ py: 0 }}>
           Open Printstack in the desktop app to list printers and send a test print.
         </Alert>
-      ) : null}
+      ) : (
+        <Alert severity="info" sx={{ py: 0 }}>
+          Mobile PDF jobs are printed automatically on the selected printer.
+        </Alert>
+      )}
       {error ? (
         <Alert severity="error" sx={{ py: 0 }}>
           {error}

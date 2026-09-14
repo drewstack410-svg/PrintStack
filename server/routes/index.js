@@ -23,6 +23,7 @@ const {
 const { updateMyLocation } = require('../controllers/locationController')
 const {
   createPrintJob,
+  createCustomerPrintJob,
   listPrintJobs,
   updatePrintJob,
 } = require('../controllers/printJobsController')
@@ -61,6 +62,11 @@ router.patch(
   updatePartner,
 )
 router.delete('/partners/:id', requireAuth, requireSuperAdmin, deletePartner)
+router.post(
+  '/partners/:partnerId/print-jobs',
+  requireAuth,
+  createCustomerPrintJob,
+)
 router.get('/staffs', requireAuth, requireAdmin, listStaffs)
 router.post('/staffs', requireAuth, requireAdmin, createStaff)
 router.patch('/staffs/:id', requireAuth, requireAdmin, updateStaff)
