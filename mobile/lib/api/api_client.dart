@@ -132,6 +132,7 @@ class ApiClient {
     required String paperSizeId,
     required int copies,
     int pages = 1,
+    String colorMode = 'bw',
   }) {
     return _request(
       'POST',
@@ -143,6 +144,7 @@ class ApiClient {
         'paperSizeId': paperSizeId,
         'copies': copies,
         'pages': pages,
+        'colorMode': colorMode,
       },
     );
   }

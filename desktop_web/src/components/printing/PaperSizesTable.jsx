@@ -31,7 +31,8 @@ export default function PaperSizesTable({ paperSizes, onEdit, onDelete }) {
             }}
           >
             <TableCell>Size</TableCell>
-            <TableCell align="right">Price / pc</TableCell>
+            <TableCell align="right">B&W / page</TableCell>
+            <TableCell align="right">Color / page</TableCell>
             <TableCell align="right" sx={{ width: 88 }}>
               Actions
             </TableCell>
@@ -56,7 +57,14 @@ export default function PaperSizesTable({ paperSizes, onEdit, onDelete }) {
                 </Typography>
               </TableCell>
               <TableCell align="right">
-                <Typography variant="body2">{peso.format(Number(item.pricePerPiece) || 0)}</Typography>
+                <Typography variant="body2">
+                  {peso.format(Number(item.priceBw ?? item.pricePerPiece) || 0)}
+                </Typography>
+              </TableCell>
+              <TableCell align="right">
+                <Typography variant="body2">
+                  {peso.format(Number(item.priceColor ?? item.pricePerPiece) || 0)}
+                </Typography>
               </TableCell>
               <TableCell align="right" sx={{ whiteSpace: 'nowrap' }}>
                 <Tooltip title="Edit">

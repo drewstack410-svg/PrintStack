@@ -10,7 +10,8 @@ export default function PaperSizeDialog({ open, paperSize, onClose, onSubmit }) 
         width: paperSize.width ?? '',
         height: paperSize.height ?? '',
         unit: paperSize.unit || 'mm',
-        pricePerPiece: paperSize.pricePerPiece ?? '',
+        priceBw: paperSize.priceBw ?? paperSize.pricePerPiece ?? '',
+        priceColor: paperSize.priceColor ?? paperSize.pricePerPiece ?? '',
       }
     : paperSizeInitialValues
 
@@ -24,12 +25,16 @@ export default function PaperSizeDialog({ open, paperSize, onClose, onSubmit }) 
         onSubmit={async (values, helpers) => {
           helpers.setStatus('')
           try {
+            const priceBw = Number(values.priceBw)
+            const priceColor = Number(values.priceColor)
             await onSubmit({
               name: values.name.trim(),
               width: Number(values.width),
               height: Number(values.height),
               unit: values.unit,
-              pricePerPiece: Number(values.pricePerPiece),
+              priceBw,
+              priceColor,
+              pricePerPiece: priceBw,
             })
             helpers.resetForm()
             onClose()
@@ -96,14 +101,31 @@ export default function PaperSizeDialog({ open, paperSize, onClose, onSubmit }) 
                 </Stack>
                 <TextField
                   size="small"
-                  name="pricePerPiece"
-                  label="Price / piece"
+                  name="priceBw"
+                  label="B&W price / page"
                   type="number"
-                  value={values.pricePerPiece}
+                  value={values.priceBw}
                   onChange={handleChange}
                   onBlur={handleBlur}
-                  error={Boolean(touched.pricePerPiece && errors.pricePerPiece)}
-                  helperText={touched.pricePerPiece && errors.pricePerPiece}
+                  error={Boolean(touched.priceBw && errors.priceBw)}
+                  helperText={touched.priceBw && errors.priceBw}
+                  slotProps={{
+                    input: {
+                      startAdornment: <InputAdornment position="start">₱</InputAdornment>,
+                    },
+                  }}
+                  fullWidth
+                />
+                <TextField
+                  size="small"
+                  name="priceColor"
+                  label="Color price / page"
+                  type="number"
+                  value={values.priceColor}
+                  onChange={handleChange}
+                  onBlur={handleBlur}
+                  error={Boolean(touched.priceColor && errors.priceColor)}
+                  helperText={touched.priceColor && errors.priceColor}
                   slotProps={{
                     input: {
                       startAdornment: <InputAdornment position="start">₱</InputAdornment>,

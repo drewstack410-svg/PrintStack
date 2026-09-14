@@ -5,7 +5,8 @@ class PaperSize {
     required this.width,
     required this.height,
     required this.unit,
-    required this.pricePerPiece,
+    required this.priceBw,
+    required this.priceColor,
   });
 
   final String id;
@@ -13,18 +14,30 @@ class PaperSize {
   final double width;
   final double height;
   final String unit;
-  final double pricePerPiece;
+  final double priceBw;
+  final double priceColor;
+
+  double get pricePerPiece => priceBw;
+
+  double priceFor({required bool color}) => color ? priceColor : priceBw;
 
   factory PaperSize.fromMap(Map<String, dynamic> json, [String fallbackId = '']) {
+    final legacy = (json['pricePerPiece'] as num?)?.toDouble() ?? 0;
+    final priceBw = (json['priceBw'] as num?)?.toDouble() ?? legacy;
+    final priceColor = (json['priceColor'] as num?)?.toDouble() ?? mathMax(legacy, priceBw);
+
     return PaperSize(
       id: (json['id'] ?? fallbackId).toString(),
       name: (json['name'] ?? '').toString(),
       width: (json['width'] as num?)?.toDouble() ?? 0,
       height: (json['height'] as num?)?.toDouble() ?? 0,
       unit: (json['unit'] ?? 'mm').toString(),
-      pricePerPiece: (json['pricePerPiece'] as num?)?.toDouble() ?? 0,
+      priceBw: priceBw,
+      priceColor: priceColor,
     );
   }
+
+  static double mathMax(double a, double b) => a > b ? a : b;
 
   String get sizeLabel {
     final w = width % 1 == 0 ? width.toInt().toString() : width.toString();
@@ -33,11 +46,51 @@ class PaperSize {
   }
 
   static const defaults = [
-    PaperSize(id: 'a4', name: 'A4', width: 210, height: 297, unit: 'mm', pricePerPiece: 0),
-    PaperSize(id: 'a3', name: 'A3', width: 297, height: 420, unit: 'mm', pricePerPiece: 0),
-    PaperSize(id: 'a5', name: 'A5', width: 148, height: 210, unit: 'mm', pricePerPiece: 0),
-    PaperSize(id: 'short', name: 'Short', width: 8.5, height: 11, unit: 'in', pricePerPiece: 0),
-    PaperSize(id: 'long', name: 'Long', width: 8.5, height: 13, unit: 'in', pricePerPiece: 0),
+    PaperSize(
+      id: 'a4',
+      name: 'A4',
+      width: 210,
+      height: 297,
+      unit: 'mm',
+      priceBw: 0,
+      priceColor: 0,
+    ),
+    PaperSize(
+      id: 'a3',
+      name: 'A3',
+      width: 297,
+      height: 420,
+      unit: 'mm',
+      priceBw: 0,
+      priceColor: 0,
+    ),
+    PaperSize(
+      id: 'a5',
+      name: 'A5',
+      width: 148,
+      height: 210,
+      unit: 'mm',
+      priceBw: 0,
+      priceColor: 0,
+    ),
+    PaperSize(
+      id: 'short',
+      name: 'Short',
+      width: 8.5,
+      height: 11,
+      unit: 'in',
+      priceBw: 0,
+      priceColor: 0,
+    ),
+    PaperSize(
+      id: 'long',
+      name: 'Long',
+      width: 8.5,
+      height: 13,
+      unit: 'in',
+      priceBw: 0,
+      priceColor: 0,
+    ),
   ];
 }
 

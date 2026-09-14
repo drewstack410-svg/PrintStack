@@ -22,20 +22,24 @@ class _PartnerOrderPageState extends State<PartnerOrderPage> {
   PaperSize? _selectedSize;
   int _copies = 1;
   int _pages = 1;
-  bool _readingPages = false;
+  bool _isColor = false;
+  bool _colorDetected = false;
+  bool _readingPdf = false;
   bool _submitting = false;
   String? _error;
   String? _success;
 
   List<PaperSize> get _sizes => widget.partner.paperSizes;
 
-  double get _total {
+  double get _unitPrice {
     final size = _selectedSize;
     if (size == null) {
       return 0;
     }
-    return size.pricePerPiece * _copies * _pages;
+    return size.priceFor(color: _isColor);
   }
+
+  double get _total => _unitPrice * _copies * _pages;
 
   @override
   void initState() {
@@ -68,18 +72,22 @@ class _PartnerOrderPageState extends State<PartnerOrderPage> {
 
     setState(() {
       _picked = file;
-      _readingPages = true;
+      _readingPdf = true;
       _pages = 1;
+      _isColor = false;
+      _colorDetected = false;
     });
 
-    final pages = await countPdfPagesSafe(file.path!);
+    final info = await analyzePdfSafe(file.path!);
     if (!mounted) {
       return;
     }
 
     setState(() {
-      _pages = pages;
-      _readingPages = false;
+      _pages = info.pages;
+      _isColor = info.isColor;
+      _colorDetected = true;
+      _readingPdf = false;
     });
   }
 
@@ -116,6 +124,7 @@ class _PartnerOrderPageState extends State<PartnerOrderPage> {
         paperSizeId: size.id,
         copies: _copies,
         pages: _pages,
+        colorMode: _isColor ? 'color' : 'bw',
       );
 
       if (!mounted) {
@@ -124,9 +133,11 @@ class _PartnerOrderPageState extends State<PartnerOrderPage> {
 
       setState(() {
         _success =
-            'Uploaded $_pages page${_pages == 1 ? '' : 's'}. The partner desktop will print it when online.';
+            'Uploaded $_pages page${_pages == 1 ? '' : 's'} (${_isColor ? 'color' : 'B&W'}). Waiting for partner desktop.';
         _picked = null;
         _pages = 1;
+        _isColor = false;
+        _colorDetected = false;
       });
     } on ApiException catch (error) {
       if (mounted) {
@@ -199,7 +210,7 @@ class _PartnerOrderPageState extends State<PartnerOrderPage> {
             borderRadius: BorderRadius.circular(16),
             child: InkWell(
               borderRadius: BorderRadius.circular(16),
-              onTap: _submitting || _readingPages ? null : _pickPdf,
+              onTap: _submitting || _readingPdf ? null : _pickPdf,
               child: Padding(
                 padding: const EdgeInsets.all(16),
                 child: Row(
@@ -225,9 +236,9 @@ class _PartnerOrderPageState extends State<PartnerOrderPage> {
                           if (_picked != null) ...[
                             const SizedBox(height: 4),
                             Text(
-                              _readingPages
-                                  ? 'Detecting pages…'
-                                  : '$_pages page${_pages == 1 ? '' : 's'} detected',
+                              _readingPdf
+                                  ? 'Detecting pages & color…'
+                                  : '$_pages page${_pages == 1 ? '' : 's'} · ${_isColor ? 'Color detected' : 'Black & white detected'}',
                               style: const TextStyle(
                                 color: AppColors.muted,
                                 fontSize: 13,
@@ -237,7 +248,7 @@ class _PartnerOrderPageState extends State<PartnerOrderPage> {
                         ],
                       ),
                     ),
-                    if (_readingPages)
+                    if (_readingPdf)
                       const SizedBox(
                         width: 18,
                         height: 18,
@@ -250,6 +261,49 @@ class _PartnerOrderPageState extends State<PartnerOrderPage> {
               ),
             ),
           ),
+          if (_picked != null && !_readingPdf) ...[
+            const SizedBox(height: 12),
+            Container(
+              padding: const EdgeInsets.all(8),
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(16),
+              ),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: _ModeChip(
+                      label: 'B&W',
+                      selected: !_isColor,
+                      onTap: _submitting
+                          ? null
+                          : () => setState(() => _isColor = false),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: _ModeChip(
+                      label: 'Color',
+                      selected: _isColor,
+                      onTap: _submitting
+                          ? null
+                          : () => setState(() => _isColor = true),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            if (_colorDetected)
+              Padding(
+                padding: const EdgeInsets.only(top: 6, left: 4),
+                child: Text(
+                  _isColor
+                      ? 'Auto-detected color. You can switch to B&W if needed.'
+                      : 'Auto-detected black & white. Switch to Color if needed.',
+                  style: const TextStyle(color: AppColors.muted, fontSize: 12),
+                ),
+              ),
+          ],
           const SizedBox(height: 24),
           const Text(
             '2. Layout',
@@ -320,10 +374,11 @@ class _PartnerOrderPageState extends State<PartnerOrderPage> {
                                 ),
                                 const SizedBox(height: 2),
                                 Text(
-                                  '${item.sizeLabel} · ₱${item.pricePerPiece.toStringAsFixed(2)} / page',
+                                  '${item.sizeLabel}\nB&W ₱${item.priceBw.toStringAsFixed(2)} · Color ₱${item.priceColor.toStringAsFixed(2)}',
                                   style: const TextStyle(
                                     color: AppColors.muted,
                                     fontSize: 13,
+                                    height: 1.35,
                                   ),
                                 ),
                               ],
@@ -389,56 +444,19 @@ class _PartnerOrderPageState extends State<PartnerOrderPage> {
             ),
             child: Column(
               children: [
-                Row(
-                  children: [
-                    const Text(
-                      'Pages',
-                      style: TextStyle(color: AppColors.muted),
-                    ),
-                    const Spacer(),
-                    Text(
-                      '$_pages',
-                      style: const TextStyle(
-                        fontWeight: FontWeight.w700,
-                        color: AppColors.navy,
-                      ),
-                    ),
-                  ],
-                ),
+                _PriceRow(label: 'Pages', value: '$_pages'),
                 const SizedBox(height: 8),
-                Row(
-                  children: [
-                    const Text(
-                      'Copies',
-                      style: TextStyle(color: AppColors.muted),
-                    ),
-                    const Spacer(),
-                    Text(
-                      '$_copies',
-                      style: const TextStyle(
-                        fontWeight: FontWeight.w700,
-                        color: AppColors.navy,
-                      ),
-                    ),
-                  ],
+                _PriceRow(label: 'Copies', value: '$_copies'),
+                const SizedBox(height: 8),
+                _PriceRow(
+                  label: 'Print mode',
+                  value: _isColor ? 'Color' : 'Black & white',
                 ),
                 if (size != null) ...[
                   const SizedBox(height: 8),
-                  Row(
-                    children: [
-                      const Text(
-                        'Price / page',
-                        style: TextStyle(color: AppColors.muted),
-                      ),
-                      const Spacer(),
-                      Text(
-                        '₱${size.pricePerPiece.toStringAsFixed(2)}',
-                        style: const TextStyle(
-                          fontWeight: FontWeight.w700,
-                          color: AppColors.navy,
-                        ),
-                      ),
-                    ],
+                  _PriceRow(
+                    label: 'Price / page',
+                    value: '₱${_unitPrice.toStringAsFixed(2)}',
                   ),
                 ],
                 const Divider(height: 24),
@@ -466,7 +484,7 @@ class _PartnerOrderPageState extends State<PartnerOrderPage> {
                 Align(
                   alignment: Alignment.centerRight,
                   child: Text(
-                    '$_pages pages × $_copies copies',
+                    '$_pages pages × $_copies copies × ${_isColor ? 'color' : 'B&W'}',
                     style: const TextStyle(
                       color: AppColors.muted,
                       fontSize: 12,
@@ -491,7 +509,7 @@ class _PartnerOrderPageState extends State<PartnerOrderPage> {
               borderRadius: BorderRadius.circular(999),
             ),
             child: FilledButton(
-              onPressed: _submitting || _readingPages || _sizes.isEmpty
+              onPressed: _submitting || _readingPdf || _sizes.isEmpty
                   ? null
                   : _submit,
               style: FilledButton.styleFrom(
@@ -514,6 +532,65 @@ class _PartnerOrderPageState extends State<PartnerOrderPage> {
           ),
         ],
       ),
+    );
+  }
+}
+
+class _ModeChip extends StatelessWidget {
+  const _ModeChip({
+    required this.label,
+    required this.selected,
+    required this.onTap,
+  });
+
+  final String label;
+  final bool selected;
+  final VoidCallback? onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: selected ? const Color(0xFFEDE7FF) : AppColors.mist,
+      borderRadius: BorderRadius.circular(12),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(12),
+        onTap: onTap,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(vertical: 12),
+          child: Text(
+            label,
+            textAlign: TextAlign.center,
+            style: TextStyle(
+              fontWeight: FontWeight.w800,
+              color: selected ? AppColors.purple : AppColors.navy,
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _PriceRow extends StatelessWidget {
+  const _PriceRow({required this.label, required this.value});
+
+  final String label;
+  final String value;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      children: [
+        Text(label, style: const TextStyle(color: AppColors.muted)),
+        const Spacer(),
+        Text(
+          value,
+          style: const TextStyle(
+            fontWeight: FontWeight.w700,
+            color: AppColors.navy,
+          ),
+        ),
+      ],
     );
   }
 }

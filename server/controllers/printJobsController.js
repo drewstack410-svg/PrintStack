@@ -24,6 +24,7 @@ function mapJob(doc) {
     paperSizeName: data.paperSizeName || '',
     copies: Number(data.copies) || 1,
     pages: Number(data.pages) || 1,
+    colorMode: data.colorMode === 'color' ? 'color' : 'bw',
     pricePerPiece: Number(data.pricePerPiece) || 0,
     totalPrice: Number(data.totalPrice) || 0,
     customerUid: data.customerUid || '',
@@ -113,6 +114,7 @@ async function createCustomerPrintJob(req, res) {
   const paperSizeId = String(req.body.paperSizeId || '').trim()
   const copies = Math.max(1, Math.min(100, Number(req.body.copies) || 1))
   const pages = Math.max(1, Math.min(500, Number(req.body.pages) || 1))
+  const colorMode = String(req.body.colorMode || '').toLowerCase() === 'color' ? 'color' : 'bw'
 
   if (!documentName || !fileUrl || !paperSizeId) {
     res.status(400).json({ error: 'Document, file, and paper size are required' })
@@ -126,7 +128,10 @@ async function createCustomerPrintJob(req, res) {
     return
   }
 
-  const pricePerPiece = Number(paperSize.pricePerPiece) || 0
+  const pricePerPiece =
+    colorMode === 'color'
+      ? Number(paperSize.priceColor) || 0
+      : Number(paperSize.priceBw ?? paperSize.pricePerPiece) || 0
   const totalPrice = Number((pricePerPiece * copies * pages).toFixed(2))
   const customerName = [req.profile?.firstName, req.profile?.lastName]
     .filter(Boolean)
@@ -150,6 +155,7 @@ async function createCustomerPrintJob(req, res) {
     paperUnit: paperSize.unit,
     copies,
     pages,
+    colorMode,
     pricePerPiece,
     totalPrice,
     customerUid: req.user.uid,

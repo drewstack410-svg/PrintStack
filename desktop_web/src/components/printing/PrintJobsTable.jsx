@@ -74,11 +74,11 @@ export default function PrintJobsTable({ jobs }) {
                     ? `${job.paperSizeName} · ×${job.copies || 1}`
                     : job.printerName || '—'}
                 </Typography>
-                {Number(job.totalPrice) > 0 ? (
-                  <Typography variant="caption" color="text.secondary">
-                    ₱{Number(job.totalPrice).toFixed(2)}
-                  </Typography>
-                ) : null}
+                <Typography variant="caption" color="text.secondary" display="block">
+                  {job.colorMode === 'color' ? 'Color' : 'B&W'}
+                  {Number(job.pages) > 1 ? ` · ${job.pages} pages` : ''}
+                  {Number(job.totalPrice) > 0 ? ` · ₱${Number(job.totalPrice).toFixed(2)}` : ''}
+                </Typography>
               </TableCell>
               <TableCell>
                 <Typography variant="body2" color="text.secondary">

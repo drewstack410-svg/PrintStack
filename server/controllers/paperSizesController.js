@@ -60,8 +60,8 @@ async function createPaperSize(req, res) {
     return
   }
 
-  if (next.pricePerPiece < 0) {
-    res.status(400).json({ error: 'Price per piece cannot be negative' })
+  if (next.priceBw < 0 || next.priceColor < 0) {
+    res.status(400).json({ error: 'Prices cannot be negative' })
     return
   }
 
@@ -94,8 +94,8 @@ async function updatePaperSize(req, res) {
     return
   }
 
-  if (next.pricePerPiece < 0) {
-    res.status(400).json({ error: 'Price per piece cannot be negative' })
+  if (next.priceBw < 0 || next.priceColor < 0) {
+    res.status(400).json({ error: 'Prices cannot be negative' })
     return
   }
 

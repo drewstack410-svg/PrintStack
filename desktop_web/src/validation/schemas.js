@@ -132,11 +132,16 @@ export const paperSizeSchema = yup.object({
     .positive('Height must be greater than 0')
     .required('Height is required'),
   unit: yup.string().oneOf(['mm', 'in']).required('Unit is required'),
-  pricePerPiece: yup
+  priceBw: yup
     .number()
-    .typeError('Enter a price')
+    .typeError('Enter a B&W price')
     .min(0, 'Price cannot be negative')
-    .required('Price per piece is required'),
+    .required('B&W price is required'),
+  priceColor: yup
+    .number()
+    .typeError('Enter a color price')
+    .min(0, 'Price cannot be negative')
+    .required('Color price is required'),
 })
 
 export const paperSizeInitialValues = {
@@ -144,5 +149,6 @@ export const paperSizeInitialValues = {
   width: '',
   height: '',
   unit: 'mm',
-  pricePerPiece: '',
+  priceBw: '',
+  priceColor: '',
 }
