@@ -21,6 +21,10 @@ app.use((error, _req, res, next) => {
   res.status(status).json({ error: error.message || 'Request failed' })
 })
 
-app.listen(port, () => {
-  console.log(`Printstack API running on http://127.0.0.1:${port}`)
-})
+if (!process.env.VERCEL) {
+  app.listen(port, () => {
+    console.log(`Printstack API running on http://127.0.0.1:${port}`)
+  })
+}
+
+export default app

@@ -4,6 +4,9 @@
   "version": "0.1.0",
   "type": "module",
   "main": "server.js",
+  "engines": {
+    "node": ">=20.19.0"
+  },
   "scripts": {
     "start": "nodemon server.js",
     "dev": "nodemon server.js"
@@ -16,5 +19,8 @@
   },
   "devDependencies": {
     "nodemon": "^3.1.14"
+  },
+  "overrides": {
+    "jose": "^5.10.0"
   }
 }
