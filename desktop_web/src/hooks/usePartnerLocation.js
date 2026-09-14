@@ -66,7 +66,8 @@ export function usePartnerLocation({ user, enabled }) {
 
     async function report({ force = false, online = true } = {}) {
       try {
-        const coords = await readTrackedCoords()
+        const token = await user.getIdToken()
+        const coords = await readTrackedCoords(token)
         const next = { lat: coords.latitude, lng: coords.longitude }
         const moved = distanceMeters(lastSent.current, next) >= MOVE_THRESHOLD_M
 
@@ -84,7 +85,7 @@ export function usePartnerLocation({ user, enabled }) {
         const label =
           coords.label ||
           (moved || !lastLabel.current
-            ? await reverseGeocode(next.lat, next.lng)
+            ? await reverseGeocode(next.lat, next.lng, token)
             : lastLabel.current)
 
         await pushLocation({ ...next, label, online })

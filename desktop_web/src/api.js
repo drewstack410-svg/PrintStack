@@ -171,3 +171,27 @@ export function updatePrintJob(idToken, id, body) {
     body: JSON.stringify(body),
   })
 }
+
+export function locateViaApi(idToken) {
+  return authorizedJson('/api/geo/locate', idToken, {
+    method: 'POST',
+  })
+}
+
+export function reverseGeocodeViaApi(idToken, lat, lng) {
+  const params = new URLSearchParams({
+    lat: String(lat),
+    lng: String(lng),
+  })
+  return authorizedJson(`/api/geo/reverse?${params}`, idToken)
+}
+
+export function fetchRouteViaApi(idToken, { fromLat, fromLng, toLat, toLng }) {
+  const params = new URLSearchParams({
+    fromLat: String(fromLat),
+    fromLng: String(fromLng),
+    toLat: String(toLat),
+    toLng: String(toLng),
+  })
+  return authorizedJson(`/api/geo/route?${params}`, idToken)
+}
