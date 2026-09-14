@@ -37,6 +37,7 @@ export default function PrintingPage() {
   const [deletingNow, setDeletingNow] = useState(false)
   const [printJobs, setPrintJobs] = useState([])
   const autoPrinted = useRef(new Set())
+  const processingRef = useRef(false)
   const selectedRef = useRef(selected)
   const printersRef = useRef(printers)
 
@@ -151,7 +152,7 @@ export default function PrintingPage() {
   }, [printersApi, user])
 
   useEffect(() => {
-    if (!printersApi?.printPdf || !user || !selected) {
+    if (!printersApi?.printPdf || !user || !selected || processingRef.current) {
       return undefined
     }
 
@@ -159,7 +160,7 @@ export default function PrintingPage() {
       (job) =>
         job.source === 'mobile' &&
         job.fileUrl &&
-        job.status === 'queued' &&
+        (job.status === 'queued' || job.status === 'sending') &&
         !autoPrinted.current.has(job.id),
     )
 
@@ -167,63 +168,82 @@ export default function PrintingPage() {
       return undefined
     }
 
-    let cancelled = false
-
     async function processQueue() {
-      for (const job of pending) {
-        if (cancelled) {
-          return
-        }
-        autoPrinted.current.add(job.id)
-        const deviceName = selectedRef.current
-        const printer = printersRef.current.find((item) => item.name === deviceName)
-        const printerName = printer?.displayName || printer?.name || deviceName
+      processingRef.current = true
+      try {
+        for (const job of pending) {
+          autoPrinted.current.add(job.id)
+          const deviceName = selectedRef.current
+          const printer = printersRef.current.find((item) => item.name === deviceName)
+          const printerName = printer?.displayName || printer?.name || deviceName
 
-        try {
-          const token = await user.getIdToken()
-          await updatePrintJob(token, job.id, {
-            status: 'sending',
-            rawStatus: 'Sending to printer',
-            printerName,
-            deviceName,
-          })
-          setPrintJobs((current) =>
-            current.map((item) =>
-              item.id === job.id
-                ? { ...item, status: 'sending', printerName, deviceName }
-                : item,
-            ),
-          )
-
-          await printersApi.printPdf({
-            trackId: job.id,
-            documentName: job.documentName,
-            fileUrl: job.fileUrl,
-            copies: job.copies || 1,
-            deviceName,
-            printerName,
-          })
-          setSuccess(`Printing ${job.documentName}`)
-        } catch (err) {
-          autoPrinted.current.delete(job.id)
           try {
             const token = await user.getIdToken()
             await updatePrintJob(token, job.id, {
-              status: 'failed',
-              rawStatus: err.message || 'Print failed',
+              status: 'sending',
+              rawStatus: 'Sending to printer',
+              printerName,
+              deviceName,
             })
-          } catch {
-            // Ignore follow-up write errors.
+            setPrintJobs((current) =>
+              current.map((item) =>
+                item.id === job.id
+                  ? { ...item, status: 'sending', printerName, deviceName }
+                  : item,
+              ),
+            )
+
+            await printersApi.printPdf({
+              trackId: job.id,
+              documentName: job.documentName,
+              fileUrl: job.fileUrl,
+              copies: job.copies || 1,
+              deviceName,
+              printerName,
+            })
+
+            await updatePrintJob(token, job.id, {
+              status: 'printing',
+              rawStatus: 'In Windows print queue',
+              printerName,
+              deviceName,
+            })
+            setPrintJobs((current) =>
+              current.map((item) =>
+                item.id === job.id
+                  ? { ...item, status: 'printing', rawStatus: 'In Windows print queue' }
+                  : item,
+              ),
+            )
+            setSuccess(`Sent ${job.documentName} to the printer queue`)
+          } catch (err) {
+            autoPrinted.current.delete(job.id)
+            try {
+              const token = await user.getIdToken()
+              await updatePrintJob(token, job.id, {
+                status: 'failed',
+                rawStatus: err.message || 'Print failed',
+              })
+            } catch {
+              // Ignore follow-up write errors.
+            }
+            setPrintJobs((current) =>
+              current.map((item) =>
+                item.id === job.id
+                  ? { ...item, status: 'failed', rawStatus: err.message || 'Print failed' }
+                  : item,
+              ),
+            )
+            setError(err.message || `Could not print ${job.documentName}`)
           }
-          setError(err.message || `Could not print ${job.documentName}`)
         }
+      } finally {
+        processingRef.current = false
       }
     }
 
     processQueue()
-    return () => {
-      cancelled = true
-    }
+    return undefined
   }, [printJobs, printersApi, selected, user])
 
   async function handleTestPrint() {

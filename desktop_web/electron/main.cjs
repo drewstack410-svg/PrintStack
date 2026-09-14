@@ -1,6 +1,8 @@
 const { app, BrowserWindow, ipcMain, session, shell } = require('electron')
 const { execFile } = require('child_process')
 const fs = require('fs')
+const http = require('http')
+const https = require('https')
 const path = require('path')
 const { promisify } = require('util')
 
@@ -217,26 +219,44 @@ app.whenReady().then(() => {
     const trackId = String(payload.trackId || `track-${Date.now()}`)
     const documentName = String(payload.documentName || `Printstack-${Date.now()}`)
     const copies = Math.max(1, Math.min(50, Number(payload.copies) || 1))
-    const preview = new BrowserWindow({
-      show: false,
-      width: 900,
-      height: 1200,
-      webPreferences: {
-        sandbox: true,
-        contextIsolation: true,
-      },
-    })
+    let tempFile = ''
 
     try {
-      await loadUrl(preview, fileUrl)
-      await sleep(800)
-      for (let i = 0; i < copies; i += 1) {
-        await silentPrint(preview, deviceName)
-        if (i < copies - 1) {
-          await sleep(600)
-        }
-      }
-      await sleep(1200)
+      sendJobStatus(event.sender, {
+        trackId,
+        status: 'printing',
+        rawStatus: 'Downloading PDF',
+      })
+
+      tempFile = await downloadPdfToTemp(fileUrl, documentName)
+
+      sendJobStatus(event.sender, {
+        trackId,
+        status: 'printing',
+        rawStatus: 'Submitting to Windows print queue',
+      })
+
+      await printPdfFile({
+        filePath: tempFile,
+        printerName: String(payload.printerName || deviceName),
+        deviceName,
+        copies,
+      })
+
+      sendJobStatus(event.sender, {
+        trackId,
+        status: 'printing',
+        rawStatus: 'In Windows print queue',
+      })
+
+      watchPrintJob({
+        sender: event.sender,
+        trackId,
+        deviceName,
+        documentName,
+      })
+
+      return { ok: true, trackId, status: 'printing' }
     } catch (error) {
       sendJobStatus(event.sender, {
         trackId,
@@ -245,19 +265,17 @@ app.whenReady().then(() => {
       })
       throw error
     } finally {
-      if (!preview.isDestroyed()) {
-        preview.close()
+      if (tempFile) {
+        // Keep file briefly so the spooler can read it, then clean up.
+        setTimeout(() => {
+          try {
+            fs.unlinkSync(tempFile)
+          } catch {
+            // Ignore cleanup errors.
+          }
+        }, 60_000)
       }
     }
-
-    sendJobStatus(event.sender, { trackId, status: 'queued', rawStatus: 'Submitted' })
-    watchPrintJob({
-      sender: event.sender,
-      trackId,
-      deviceName,
-      documentName,
-    })
-    return { ok: true, trackId, status: 'queued' }
   })
 
   createWindow()
@@ -316,8 +334,126 @@ function loadUrl(win, url) {
   })
 }
 
+function downloadPdfToTemp(fileUrl, documentName) {
+  const tempDir = path.join(app.getPath('temp'), 'printstack-jobs')
+  fs.mkdirSync(tempDir, { recursive: true })
+  const safeName = String(documentName || 'document.pdf')
+    .replace(/[^\w.\- ]+/g, '_')
+    .replace(/\s+/g, '_')
+  const fileName = safeName.toLowerCase().endsWith('.pdf') ? safeName : `${safeName}.pdf`
+  const dest = path.join(tempDir, `${Date.now()}_${fileName}`)
+
+  return new Promise((resolve, reject) => {
+    const timeout = setTimeout(() => reject(new Error('PDF download timed out')), 45000)
+
+    const request = (currentUrl, redirects = 0) => {
+      const lib = currentUrl.startsWith('http://') ? http : https
+      const req = lib.get(currentUrl, (res) => {
+        if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
+          res.resume()
+          if (redirects >= 5) {
+            clearTimeout(timeout)
+            reject(new Error('Too many redirects downloading PDF'))
+            return
+          }
+          const nextUrl = new URL(res.headers.location, currentUrl).toString()
+          request(nextUrl, redirects + 1)
+          return
+        }
+
+        if (res.statusCode !== 200) {
+          clearTimeout(timeout)
+          reject(new Error(`Could not download PDF (${res.statusCode})`))
+          res.resume()
+          return
+        }
+
+        const file = fs.createWriteStream(dest)
+        res.pipe(file)
+        file.on('finish', () => {
+          file.close(() => {
+            clearTimeout(timeout)
+            resolve(dest)
+          })
+        })
+        file.on('error', (error) => {
+          clearTimeout(timeout)
+          reject(error)
+        })
+      })
+
+      req.on('error', (error) => {
+        clearTimeout(timeout)
+        reject(error)
+      })
+    }
+
+    request(fileUrl)
+  })
+}
+
+async function printPdfFile({ filePath, printerName, deviceName, copies }) {
+  if (process.platform === 'win32') {
+    await printPdfWindows(filePath, printerName || deviceName, copies)
+    return
+  }
+
+  const preview = new BrowserWindow({
+    show: false,
+    width: 900,
+    height: 1200,
+    webPreferences: {
+      sandbox: true,
+      contextIsolation: true,
+    },
+  })
+
+  try {
+    await loadUrl(preview, `file://${filePath.replace(/\\/g, '/')}`)
+    await sleep(800)
+    for (let i = 0; i < copies; i += 1) {
+      await silentPrint(preview, deviceName)
+      if (i < copies - 1) {
+        await sleep(600)
+      }
+    }
+  } finally {
+    if (!preview.isDestroyed()) {
+      preview.close()
+    }
+  }
+}
+
+async function printPdfWindows(filePath, printerName, copies) {
+  const escapedPath = String(filePath).replace(/'/g, "''")
+  const escapedPrinter = String(printerName || '').replace(/'/g, "''")
+
+  for (let i = 0; i < copies; i += 1) {
+    // Prefer PrintTo so the selected printer gets the job in the Windows spooler.
+    const command = `
+$ErrorActionPreference = 'Stop'
+$path = '${escapedPath}'
+$printer = '${escapedPrinter}'
+try {
+  Start-Process -FilePath $path -Verb PrintTo -ArgumentList $printer -WindowStyle Hidden | Out-Null
+} catch {
+  Start-Process -FilePath $path -Verb Print -WindowStyle Hidden | Out-Null
+}
+`
+    await execFileAsync(
+      'powershell.exe',
+      ['-NoProfile', '-NonInteractive', '-Command', command],
+      { windowsHide: true, timeout: 30000 },
+    )
+    if (i < copies - 1) {
+      await sleep(1200)
+    }
+  }
+}
+
 function silentPrint(win, deviceName) {
   return new Promise((resolve, reject) => {
+    const timeout = setTimeout(() => reject(new Error('Print timed out')), 30000)
     win.webContents.print(
       {
         silent: true,
@@ -325,6 +461,7 @@ function silentPrint(win, deviceName) {
         printBackground: true,
       },
       (success, failureReason) => {
+        clearTimeout(timeout)
         if (success) {
           resolve(true)
           return
@@ -389,13 +526,21 @@ async function listWindowsPrintJobs(printerName) {
 async function watchPrintJob({ sender, trackId, deviceName, documentName }) {
   const started = Date.now()
   let seen = false
-  let lastStatus = 'queued'
+  let lastStatus = 'printing'
+  const needle = String(documentName || '')
+    .toLowerCase()
+    .replace(/\.pdf$/i, '')
 
   while (Date.now() - started < 90_000 && !sender.isDestroyed()) {
     const jobs = await listWindowsPrintJobs(deviceName)
     const match = jobs.find((job) => {
-      const name = String(job.DocumentName || '')
-      return name.includes(documentName) || name.toLowerCase().includes('printstack')
+      const name = String(job.DocumentName || '').toLowerCase()
+      return (
+        name.includes(needle) ||
+        name.includes(String(documentName || '').toLowerCase()) ||
+        name.includes('printstack') ||
+        name.endsWith('.pdf')
+      )
     })
 
     if (match) {
@@ -403,7 +548,7 @@ async function watchPrintJob({ sender, trackId, deviceName, documentName }) {
       lastStatus = normalizeJobStatus(match.JobStatus)
       sendJobStatus(sender, {
         trackId,
-        status: lastStatus,
+        status: lastStatus === 'queued' ? 'printing' : lastStatus,
         rawStatus: String(match.JobStatus || ''),
         printerJobId: match.Id,
       })
@@ -426,7 +571,7 @@ async function watchPrintJob({ sender, trackId, deviceName, documentName }) {
     sendJobStatus(sender, {
       trackId,
       status: seen && lastStatus !== 'failed' ? 'printed' : lastStatus,
-      rawStatus: seen ? 'Complete' : 'Not printed',
+      rawStatus: seen ? 'Complete' : 'Submitted to printer',
     })
   }
 }
