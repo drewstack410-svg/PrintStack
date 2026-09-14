@@ -2,9 +2,11 @@ export const SUPERADMIN_ROLE = 'superadmin'
 export const ADMIN_ROLE = 'admin'
 export const PARTNER_ROLE = 'partner'
 export const STAFF_ROLE = 'staff'
+export const CUSTOMER_ROLE = 'customer'
 
 export function mapUserDoc(uid, data = {}, fallbackEmail = '') {
-  const role = data.role || 'user'
+  const rawRole = data.role || CUSTOMER_ROLE
+  const role = rawRole === 'user' ? CUSTOMER_ROLE : rawRole
 
   return {
     uid,
@@ -22,6 +24,7 @@ export function mapUserDoc(uid, data = {}, fallbackEmail = '') {
     superadmin: role === SUPERADMIN_ROLE,
     admin: role === ADMIN_ROLE,
     staff: role === STAFF_ROLE,
+    customer: role === CUSTOMER_ROLE,
   }
 }
 

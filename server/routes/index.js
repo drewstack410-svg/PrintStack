@@ -45,7 +45,7 @@ const router = Router()
 router.get('/health', health)
 router.get('/me', requireAuth, me)
 router.patch('/me/location', requireAuth, requireAdmin, updateMyLocation)
-router.get('/partners', requireAuth, requireSuperAdmin, listPartners)
+router.get('/partners', requireAuth, listPartners)
 router.post(
   '/partners',
   requireAuth,

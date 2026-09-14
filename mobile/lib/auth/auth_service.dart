@@ -23,6 +23,15 @@ class AuthService {
       _firestore = firestore ?? FirebaseFirestore.instance;
 
   static final AuthService instance = AuthService();
+  static const customerRole = 'customer';
+
+  /// Elevated roles that must never be overwritten from the mobile app.
+  static const _protectedRoles = {
+    'superadmin',
+    'admin',
+    'partner',
+    'staff',
+  };
 
   final FirebaseAuth _auth;
   final FirebaseFirestore _firestore;
@@ -149,7 +158,7 @@ class AuthService {
         'middleName': '',
         'lastName': names.$2,
         'photoUrl': user.photoURL ?? '',
-        'role': 'user',
+        'role': customerRole,
         'createdAt': FieldValue.serverTimestamp(),
         'updatedAt': FieldValue.serverTimestamp(),
       });
@@ -157,10 +166,17 @@ class AuthService {
     }
 
     final data = snap.data() ?? {};
+    final currentRole = (data['role'] ?? '').toString().trim();
     final updates = <String, dynamic>{
       'email': user.email ?? data['email'] ?? '',
       'updatedAt': FieldValue.serverTimestamp(),
     };
+
+    // Mobile accounts default to customer. Never demote staff/admin roles.
+    if (currentRole.isEmpty || currentRole == 'user') {
+      updates['role'] = customerRole;
+    }
+
     if (_isBlank(data['firstName']) && names.$1.isNotEmpty) {
       updates['firstName'] = names.$1;
     }
@@ -170,6 +186,12 @@ class AuthService {
     if (_isBlank(data['photoUrl']) && (user.photoURL ?? '').isNotEmpty) {
       updates['photoUrl'] = user.photoURL;
     }
+
+    // Guard: if somehow a protected role slipped into updates, drop it.
+    if (_protectedRoles.contains(currentRole)) {
+      updates.remove('role');
+    }
+
     await ref.set(updates, SetOptions(merge: true));
   }
 
