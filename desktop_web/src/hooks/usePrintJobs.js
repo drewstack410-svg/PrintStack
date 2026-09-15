@@ -143,15 +143,18 @@ function mapDocument(raw = {}, index = 0) {
 
 export function usePrintJobs({ partnerId, enabled = true }) {
   const [jobs, setJobs] = useState([])
+  const [loading, setLoading] = useState(Boolean(enabled && partnerId))
   const [error, setError] = useState('')
 
   useEffect(() => {
     if (!enabled || !partnerId) {
       setJobs([])
       setError('')
+      setLoading(false)
       return undefined
     }
 
+    setLoading(true)
     let unsubscribe = () => {}
     let cancelled = false
 
@@ -170,6 +173,7 @@ export function usePrintJobs({ partnerId, enabled = true }) {
           }
           setJobs(next)
           setError('')
+          setLoading(false)
         },
         (err) => {
           if (cancelled) {
@@ -186,6 +190,7 @@ export function usePrintJobs({ partnerId, enabled = true }) {
           }
           setError(err.message || 'Could not listen for print jobs')
           setJobs([])
+          setLoading(false)
         },
       )
 
@@ -203,5 +208,5 @@ export function usePrintJobs({ partnerId, enabled = true }) {
     }
   }, [enabled, partnerId])
 
-  return { jobs, setJobs, error }
+  return { jobs, setJobs, loading, error }
 }

@@ -81,6 +81,28 @@ function printJobsFolderInfo() {
   }
 }
 
+function getPrintPreferences() {
+  return normalizeContinuePrintPreferences(readAppSettings())
+}
+
+function normalizeContinuePrintPreferences(raw = {}) {
+  const legacyEnabled = raw.spacebarContinueAfterPrint
+  const enabled =
+    typeof raw.continuePrintWithKey === 'boolean'
+      ? raw.continuePrintWithKey
+      : legacyEnabled !== false
+
+  const code = String(raw.continuePrintKeyCode || 'Space').trim() || 'Space'
+  const label = String(raw.continuePrintKeyLabel || '').trim() || (code === 'Space' ? 'Space' : code)
+
+  return {
+    continuePrintWithKey: enabled,
+    continuePrintKeyCode: code,
+    continuePrintKeyLabel: label,
+    spacebarContinueAfterPrint: enabled && code === 'Space',
+  }
+}
+
 const googleApiKey = process.env.VITE_GOOGLE_MAPS_API_KEY || process.env.GOOGLE_MAPS_API_KEY || ''
 if (googleApiKey) {
   app.commandLine.appendSwitch('google-api-key', googleApiKey)
@@ -220,6 +242,29 @@ app.whenReady().then(() => {
       throw new Error(error)
     }
     return { ok: true, path: folder }
+  })
+
+  ipcMain.handle('settings:getPreferences', () => getPrintPreferences())
+
+  ipcMain.handle('settings:setPreferences', (_event, patch = {}) => {
+    const settings = readAppSettings()
+    if (typeof patch.continuePrintWithKey === 'boolean') {
+      settings.continuePrintWithKey = patch.continuePrintWithKey
+    } else if (typeof patch.spacebarContinueAfterPrint === 'boolean') {
+      settings.continuePrintWithKey = patch.spacebarContinueAfterPrint
+    }
+    if (typeof patch.continuePrintKeyCode === 'string' && patch.continuePrintKeyCode.trim()) {
+      settings.continuePrintKeyCode = patch.continuePrintKeyCode.trim()
+    }
+    if (typeof patch.continuePrintKeyLabel === 'string' && patch.continuePrintKeyLabel.trim()) {
+      settings.continuePrintKeyLabel = patch.continuePrintKeyLabel.trim()
+    }
+    // Drop legacy-only flag once new prefs are written.
+    if ('continuePrintWithKey' in settings || 'continuePrintKeyCode' in settings) {
+      delete settings.spacebarContinueAfterPrint
+    }
+    writeAppSettings(settings)
+    return getPrintPreferences()
   })
 
   ipcMain.handle('shell:openExternal', async (_event, url) => {

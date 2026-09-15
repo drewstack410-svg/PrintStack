@@ -22,6 +22,8 @@ contextBridge.exposeInMainWorld('printstack', {
     resetPrintJobsFolder: () => ipcRenderer.invoke('settings:resetPrintJobsFolder'),
     pickPrintJobsFolder: () => ipcRenderer.invoke('settings:pickPrintJobsFolder'),
     openPrintJobsFolder: () => ipcRenderer.invoke('settings:openPrintJobsFolder'),
+    getPreferences: () => ipcRenderer.invoke('settings:getPreferences'),
+    setPreferences: (patch) => ipcRenderer.invoke('settings:setPreferences', patch),
   },
   shell: {
     openExternal: (url) => ipcRenderer.invoke('shell:openExternal', url),

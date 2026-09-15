@@ -8,11 +8,17 @@ import {
   Box,
   Button,
   Checkbox,
+  Dialog,
+  DialogActions,
+  DialogContent,
+  DialogContentText,
+  DialogTitle,
   FormControlLabel,
   IconButton,
   InputAdornment,
   MenuItem,
   Paper,
+  Skeleton,
   Stack,
   TextField,
   Tooltip,
@@ -26,6 +32,7 @@ import {
 import { useAuth } from '../auth/AuthProvider'
 import PageHeader from '../components/dashboard/PageHeader'
 import PrintJobCards from '../components/printing/PrintJobCards'
+import PrintJobsSkeleton from '../components/printing/PrintJobsSkeleton'
 import { usePrintJobs } from '../hooks/usePrintJobs'
 import { orderDocuments } from '../lib/printOrder'
 import OrderDocumentsPage from './OrderDocumentsPage'
@@ -62,9 +69,13 @@ export default function PrintingPage() {
   const [reprintingDocId, setReprintingDocId] = useState('')
   const [bulkReprinting, setBulkReprinting] = useState(false)
   const [openOrderId, setOpenOrderId] = useState('')
+  const [printDoneDialog, setPrintDoneDialog] = useState(null)
+  const [continueWithKey, setContinueWithKey] = useState(true)
+  const [continueKey, setContinueKey] = useState({ code: 'Space', label: 'Space' })
   const {
     jobs: printJobs,
     setJobs: setPrintJobs,
+    loading: jobsLoading,
     error: jobsError,
   } = usePrintJobs({
     partnerId: profile?.partnerId,
@@ -74,6 +85,10 @@ export default function PrintingPage() {
   const processingRef = useRef(false)
   const selectedRef = useRef(selected)
   const printersRef = useRef(printers)
+  const printDoneResolverRef = useRef(null)
+  const continueWithKeyRef = useRef(true)
+  const continueKeyCodeRef = useRef('Space')
+  const settingsApi = getDesktopApi()?.settings
 
   useEffect(() => {
     selectedRef.current = selected
@@ -82,6 +97,41 @@ export default function PrintingPage() {
   useEffect(() => {
     printersRef.current = printers
   }, [printers])
+
+  useEffect(() => {
+    continueWithKeyRef.current = continueWithKey
+  }, [continueWithKey])
+
+  useEffect(() => {
+    continueKeyCodeRef.current = continueKey.code || 'Space'
+  }, [continueKey])
+
+  useEffect(() => {
+    if (!settingsApi?.getPreferences) {
+      return undefined
+    }
+
+    let cancelled = false
+    settingsApi
+      .getPreferences()
+      .then((prefs) => {
+        if (cancelled) {
+          return
+        }
+        setContinueWithKey(prefs?.continuePrintWithKey !== false)
+        setContinueKey({
+          code: prefs?.continuePrintKeyCode || 'Space',
+          label: prefs?.continuePrintKeyLabel || 'Space',
+        })
+      })
+      .catch(() => {
+        // Keep defaults.
+      })
+
+    return () => {
+      cancelled = true
+    }
+  }, [settingsApi])
 
   const loadPrinters = useCallback(async () => {
     if (!printersApi) {
@@ -144,6 +194,44 @@ export default function PrintingPage() {
     })
   }, [printersApi, user])
 
+  function waitForPrintAck(info) {
+    return new Promise((resolve) => {
+      printDoneResolverRef.current = resolve
+      setPrintDoneDialog(info)
+    })
+  }
+
+  function acknowledgePrintDone() {
+    const resolve = printDoneResolverRef.current
+    printDoneResolverRef.current = null
+    setPrintDoneDialog(null)
+    resolve?.()
+  }
+
+  useEffect(() => {
+    if (!printDoneDialog) {
+      return undefined
+    }
+
+    function onKeyDown(event) {
+      if (!continueWithKeyRef.current) {
+        return
+      }
+
+      const expected = continueKeyCodeRef.current || 'Space'
+      if (event.code !== expected && !(expected === 'Space' && event.key === ' ')) {
+        return
+      }
+
+      event.preventDefault()
+      event.stopPropagation()
+      acknowledgePrintDone()
+    }
+
+    window.addEventListener('keydown', onKeyDown, true)
+    return () => window.removeEventListener('keydown', onKeyDown, true)
+  }, [printDoneDialog])
+
   useEffect(() => {
     if (!printersApi?.printPdf || !user || !selected || processingRef.current) {
       return undefined
@@ -167,7 +255,8 @@ export default function PrintingPage() {
     async function processQueue() {
       processingRef.current = true
       try {
-        for (const job of pending) {
+        for (let index = 0; index < pending.length; index += 1) {
+          const job = pending[index]
           autoPrinted.current.add(job.id)
           const deviceName = selectedRef.current
           const printer = printersRef.current.find((item) => item.name === deviceName)
@@ -232,8 +321,8 @@ export default function PrintingPage() {
             }
 
             await updatePrintJob(token, job.id, {
-              status: 'printing',
-              rawStatus: 'In Windows print queue',
+              status: 'printed',
+              rawStatus: 'Printed',
               printerName,
               deviceName,
               localPath: lastLocalPath,
@@ -243,16 +332,21 @@ export default function PrintingPage() {
                 item.id === job.id
                   ? {
                       ...item,
-                      status: 'printing',
-                      rawStatus: 'In Windows print queue',
+                      status: 'printed',
+                      rawStatus: 'Printed',
                       localPath: lastLocalPath || item.localPath || '',
                     }
                   : item,
               ),
             )
-            setSuccess(
-              `Sent order #${job.orderNumber || job.id} (${docs.length} doc${docs.length === 1 ? '' : 's'}) to the printer queue`,
-            )
+
+            const hasMore = index < pending.length - 1
+            await waitForPrintAck({
+              orderNumber: job.orderNumber || job.id,
+              docCount: docs.length,
+              customerName: job.customerName || job.customerEmail || '',
+              hasMore,
+            })
           } catch (err) {
             autoPrinted.current.delete(job.id)
             try {
@@ -579,6 +673,50 @@ export default function PrintingPage() {
     }
   }, [openOrderId, printJobs])
 
+  const printSuccessDialog = (
+    <Dialog
+      open={Boolean(printDoneDialog)}
+      onClose={acknowledgePrintDone}
+      fullWidth
+      maxWidth="xs"
+      disableRestoreFocus
+    >
+      <DialogTitle>Print successful</DialogTitle>
+      <DialogContent>
+        <DialogContentText>
+          {printDoneDialog
+            ? [
+                `Order #${printDoneDialog.orderNumber} printed successfully`,
+                printDoneDialog.docCount
+                  ? ` (${printDoneDialog.docCount} document${printDoneDialog.docCount === 1 ? '' : 's'})`
+                  : '',
+                printDoneDialog.customerName ? ` for ${printDoneDialog.customerName}` : '',
+                '.',
+                printDoneDialog.hasMore
+                  ? ' Continue when you are ready for the next order.'
+                  : '',
+              ].join('')
+            : ''}
+        </DialogContentText>
+        {continueWithKey ? (
+          <Typography variant="body2" color="text.secondary" sx={{ mt: 1.5 }}>
+            Press <strong>{continueKey.label || 'Space'}</strong> to{' '}
+            {printDoneDialog?.hasMore ? 'continue to the next order' : 'dismiss'}
+          </Typography>
+        ) : null}
+      </DialogContent>
+      <DialogActions sx={{ px: 2, pb: 1.5 }}>
+        <Button
+          variant="contained"
+          onClick={acknowledgePrintDone}
+          autoFocus={!continueWithKey}
+        >
+          {printDoneDialog?.hasMore ? 'Continue to next order' : 'OK'}
+        </Button>
+      </DialogActions>
+    </Dialog>
+  )
+
   if (openOrder) {
     return (
       <Stack spacing={{ xs: 1.25, sm: 1.5 }} sx={{ width: '100%', minWidth: 0 }}>
@@ -615,6 +753,7 @@ export default function PrintingPage() {
           reprintDisabled={bulkReprinting || !printersApi || !selected}
           printersReady={Boolean(printersApi && selected)}
         />
+        {printSuccessDialog}
       </Stack>
     )
   }
@@ -724,134 +863,153 @@ export default function PrintingPage() {
           },
         }}
       >
-        <TextField
-          size="small"
-          value={search}
-          onChange={(event) => setSearch(event.target.value)}
-          placeholder="Search jobs…"
-          fullWidth
-          slotProps={{
-            input: {
-              startAdornment: (
-                <InputAdornment position="start">
-                  <SearchIcon fontSize="small" />
-                </InputAdornment>
-              ),
-            },
-          }}
-        />
-        <TextField
-          select
-          size="small"
-          label="Status"
-          value={statusFilter}
-          onChange={(event) => setStatusFilter(event.target.value)}
-          fullWidth
-        >
-          {STATUS_FILTERS.map((item) => (
-            <MenuItem key={item.value} value={item.value}>
-              {item.label}
-            </MenuItem>
-          ))}
-        </TextField>
-        <TextField
-          select
-          size="small"
-          label="Source"
-          value={sourceFilter}
-          onChange={(event) => setSourceFilter(event.target.value)}
-          fullWidth
-        >
-          {SOURCE_FILTERS.map((item) => (
-            <MenuItem key={item.value} value={item.value}>
-              {item.label}
-            </MenuItem>
-          ))}
-        </TextField>
+        {jobsLoading ? (
+          <>
+            <Skeleton variant="rounded" height={40} />
+            <Skeleton variant="rounded" height={40} />
+            <Skeleton variant="rounded" height={40} />
+          </>
+        ) : (
+          <>
+            <TextField
+              size="small"
+              value={search}
+              onChange={(event) => setSearch(event.target.value)}
+              placeholder="Search jobs…"
+              fullWidth
+              slotProps={{
+                input: {
+                  startAdornment: (
+                    <InputAdornment position="start">
+                      <SearchIcon fontSize="small" />
+                    </InputAdornment>
+                  ),
+                },
+              }}
+            />
+            <TextField
+              select
+              size="small"
+              label="Status"
+              value={statusFilter}
+              onChange={(event) => setStatusFilter(event.target.value)}
+              fullWidth
+            >
+              {STATUS_FILTERS.map((item) => (
+                <MenuItem key={item.value} value={item.value}>
+                  {item.label}
+                </MenuItem>
+              ))}
+            </TextField>
+            <TextField
+              select
+              size="small"
+              label="Source"
+              value={sourceFilter}
+              onChange={(event) => setSourceFilter(event.target.value)}
+              fullWidth
+            >
+              {SOURCE_FILTERS.map((item) => (
+                <MenuItem key={item.value} value={item.value}>
+                  {item.label}
+                </MenuItem>
+              ))}
+            </TextField>
+          </>
+        )}
       </Box>
 
-      {filteredJobs.length > 0 ? (
-        <Paper
-          elevation={0}
-          sx={{
-            px: 1.25,
-            py: 0.75,
-            border: '1px solid',
-            borderColor: 'divider',
-            display: 'flex',
-            alignItems: 'center',
-            gap: 1,
-            flexWrap: 'wrap',
-          }}
-        >
-          <FormControlLabel
-            sx={{ mr: 1, ml: 0 }}
-            control={
-              <Checkbox
-                size="small"
-                checked={allFilteredSelected}
-                indeterminate={selectedJobs.length > 0 && !allFilteredSelected}
-                onChange={toggleSelectAllFiltered}
-                disabled={selectableJobs.length === 0 || bulkReprinting}
+      {jobsLoading ? (
+        <PrintJobsSkeleton />
+      ) : (
+        <>
+          {filteredJobs.length > 0 ? (
+            <Paper
+              elevation={0}
+              sx={{
+                px: 1.25,
+                py: 0.75,
+                border: '1px solid',
+                borderColor: 'divider',
+                display: 'flex',
+                alignItems: 'center',
+                gap: 1,
+                flexWrap: 'wrap',
+              }}
+            >
+              <FormControlLabel
+                sx={{ mr: 1, ml: 0 }}
+                control={
+                  <Checkbox
+                    size="small"
+                    checked={allFilteredSelected}
+                    indeterminate={selectedJobs.length > 0 && !allFilteredSelected}
+                    onChange={toggleSelectAllFiltered}
+                    disabled={selectableJobs.length === 0 || bulkReprinting}
+                  />
+                }
+                label={
+                  <Typography variant="body2" fontWeight={600}>
+                    Select all
+                  </Typography>
+                }
               />
-            }
-            label={
-              <Typography variant="body2" fontWeight={600}>
-                Select all
+              <Typography variant="body2" color="text.secondary" sx={{ flex: 1, minWidth: 120 }}>
+                {selectedJobs.length > 0
+                  ? `${selectedJobs.length} selected`
+                  : `${selectableJobs.length} reprintable`}
               </Typography>
+              <Button
+                size="small"
+                variant="contained"
+                startIcon={<ReplayIcon />}
+                onClick={handleBulkReprint}
+                disabled={
+                  selectedJobs.length === 0 ||
+                  !printersApi ||
+                  !selected ||
+                  bulkReprinting ||
+                  Boolean(reprintingId)
+                }
+              >
+                {bulkReprinting
+                  ? 'Reprinting…'
+                  : `Reprint selected${selectedJobs.length ? ` (${selectedJobs.length})` : ''}`}
+              </Button>
+              {selectedJobs.length > 0 ? (
+                <Button
+                  size="small"
+                  variant="text"
+                  onClick={() => setSelectedJobIds(new Set())}
+                  disabled={bulkReprinting}
+                >
+                  Clear
+                </Button>
+              ) : null}
+            </Paper>
+          ) : null}
+
+          <PrintJobCards
+            jobs={filteredJobs}
+            selectedIds={selectedJobIds}
+            onToggleSelect={toggleJobSelection}
+            onOpenOrder={(job) => {
+              setOpenOrderId(job.id)
+              setError('')
+              setSuccess('')
+            }}
+            onReprint={handleReprint}
+            reprintingId={reprintingId}
+            reprintDisabled={bulkReprinting || !printersApi || !selected}
+            emptyMessage={
+              printJobs.length === 0
+                ? 'Mobile and desktop orders will show up here. Open an order to view its documents.'
+                : 'No jobs match the current filters.'
             }
           />
-          <Typography variant="body2" color="text.secondary" sx={{ flex: 1, minWidth: 120 }}>
-            {selectedJobs.length > 0
-              ? `${selectedJobs.length} selected`
-              : `${selectableJobs.length} reprintable`}
-          </Typography>
-          <Button
-            size="small"
-            variant="contained"
-            startIcon={<ReplayIcon />}
-            onClick={handleBulkReprint}
-            disabled={
-              selectedJobs.length === 0 ||
-              !printersApi ||
-              !selected ||
-              bulkReprinting ||
-              Boolean(reprintingId)
-            }
-          >
-            {bulkReprinting ? 'Reprinting…' : `Reprint selected${selectedJobs.length ? ` (${selectedJobs.length})` : ''}`}
-          </Button>
-          {selectedJobs.length > 0 ? (
-            <Button
-              size="small"
-              variant="text"
-              onClick={() => setSelectedJobIds(new Set())}
-              disabled={bulkReprinting}
-            >
-              Clear
-            </Button>
-          ) : null}
-        </Paper>
-      ) : null}
-
-      <PrintJobCards
-        jobs={filteredJobs}
-        selectedIds={selectedJobIds}
-        onToggleSelect={toggleJobSelection}
-        onOpenOrder={(job) => {
-          setOpenOrderId(job.id)
-          setError('')
-          setSuccess('')
-        }}
-        onReprint={handleReprint}
-        reprintingId={reprintingId}
-        reprintDisabled={bulkReprinting || !printersApi || !selected}
-        emptyMessage={
-          printJobs.length === 0
-            ? 'Mobile and desktop orders will show up here. Open an order to view its documents.'
-            : 'No jobs match the current filters.'
-        }
-      />
+        </>
+      )}
+      {printSuccessDialog}
     </Stack>
   )
 }
