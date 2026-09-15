@@ -149,10 +149,49 @@ function decodeGooglePolyline(encoded) {
   return coordinates
 }
 
+function formatDuration(seconds) {
+  const timeSeconds = Number(seconds) || 0
+  if (!timeSeconds) {
+    return ''
+  }
+  if (timeSeconds >= 3600) {
+    return `${Math.floor(timeSeconds / 3600)} hr ${Math.round((timeSeconds % 3600) / 60)} min`
+  }
+  return `${Math.max(1, Math.round(timeSeconds / 60))} min`
+}
+
+function formatDistance(meters) {
+  const distanceMeters = Number(meters) || 0
+  if (!distanceMeters) {
+    return ''
+  }
+  if (distanceMeters >= 1000) {
+    return `${(distanceMeters / 1000).toFixed(1)} km`
+  }
+  return `${Math.round(distanceMeters)} m`
+}
+
+function trafficLevelFromDurations(baseSeconds, trafficSeconds) {
+  const base = Number(baseSeconds) || 0
+  const traffic = Number(trafficSeconds) || base
+  if (!base || !traffic) {
+    return 'unknown'
+  }
+  const ratio = traffic / base
+  if (ratio < 1.15) {
+    return 'light'
+  }
+  if (ratio < 1.4) {
+    return 'moderate'
+  }
+  return 'heavy'
+}
+
 async function routeWithGeoapify(fromLat, fromLng, toLat, toLng, apiKey) {
   const params = new URLSearchParams({
     waypoints: `${fromLat},${fromLng}|${toLat},${toLng}`,
     mode: 'drive',
+    traffic: 'approximated',
     apiKey,
   })
   const response = await fetch(`https://api.geoapify.com/v1/routing?${params}`)
@@ -163,24 +202,19 @@ async function routeWithGeoapify(fromLat, fromLng, toLat, toLng, apiKey) {
 
   const feature = payload.features?.[0]
   const points = flattenLatLngCoords(feature?.geometry?.coordinates)
+  if (points.length < 2) {
+    throw new Error('Geoapify returned an empty route')
+  }
 
   const distanceMeters = Number(feature?.properties?.distance) || 0
   const timeSeconds = Number(feature?.properties?.time) || 0
   return {
-    points: points.length >= 2 ? points : [
-      { lat: fromLat, lng: fromLng },
-      { lat: toLat, lng: toLng },
-    ],
-    distanceText: distanceMeters
-      ? distanceMeters >= 1000
-        ? `${(distanceMeters / 1000).toFixed(1)} km`
-        : `${Math.round(distanceMeters)} m`
-      : '',
-    durationText: timeSeconds
-      ? timeSeconds >= 3600
-        ? `${Math.floor(timeSeconds / 3600)} hr ${Math.round((timeSeconds % 3600) / 60)} min`
-        : `${Math.max(1, Math.round(timeSeconds / 60))} min`
-      : '',
+    points,
+    distanceText: formatDistance(distanceMeters),
+    durationText: formatDuration(timeSeconds),
+    durationInTrafficText: formatDuration(timeSeconds),
+    trafficLevel: 'unknown',
+    hasTraffic: true,
     source: 'geoapify',
   }
 }
@@ -190,6 +224,8 @@ async function routeWithGoogle(fromLat, fromLng, toLat, toLng, apiKey) {
     origin: `${fromLat},${fromLng}`,
     destination: `${toLat},${toLng}`,
     mode: 'driving',
+    departure_time: 'now',
+    traffic_model: 'best_guess',
     key: apiKey,
   })
   const response = await fetch(
@@ -201,18 +237,39 @@ async function routeWithGoogle(fromLat, fromLng, toLat, toLng, apiKey) {
   }
 
   const route = payload.routes?.[0]
-  const encoded = route?.overview_polyline?.points || ''
-  const points = encoded
-    ? decodeGooglePolyline(encoded)
-    : [
-        { lat: fromLat, lng: fromLng },
-        { lat: toLat, lng: toLng },
-      ]
   const leg = route?.legs?.[0]
+  const points = []
+
+  // Prefer step polylines for road-accurate paths.
+  for (const step of leg?.steps || []) {
+    const encoded = step?.polyline?.points
+    if (encoded) {
+      points.push(...decodeGooglePolyline(encoded))
+    }
+  }
+
+  if (points.length < 2) {
+    const overview = route?.overview_polyline?.points || ''
+    if (overview) {
+      points.push(...decodeGooglePolyline(overview))
+    }
+  }
+
+  if (points.length < 2) {
+    throw new Error('Google directions returned an empty route')
+  }
+
+  const baseSeconds = Number(leg?.duration?.value) || 0
+  const trafficSeconds = Number(leg?.duration_in_traffic?.value) || baseSeconds
+
   return {
     points,
-    distanceText: leg?.distance?.text || '',
-    durationText: leg?.duration?.text || '',
+    distanceText: leg?.distance?.text || formatDistance(leg?.distance?.value),
+    durationText: leg?.duration?.text || formatDuration(baseSeconds),
+    durationInTrafficText:
+      leg?.duration_in_traffic?.text || formatDuration(trafficSeconds),
+    trafficLevel: trafficLevelFromDurations(baseSeconds, trafficSeconds),
+    hasTraffic: Boolean(leg?.duration_in_traffic),
     source: 'google',
   }
 }
@@ -341,15 +398,8 @@ async function route(req, res) {
     let result = null
     let lastError = null
 
-    if (geoapifyKey) {
-      try {
-        result = await routeWithGeoapify(fromLat, fromLng, toLat, toLng, geoapifyKey)
-      } catch (error) {
-        lastError = error
-      }
-    }
-
-    if (!result && googleKey) {
+    // Prefer Google when available — live traffic ETA + road-accurate polylines.
+    if (googleKey) {
       try {
         result = await routeWithGoogle(fromLat, fromLng, toLat, toLng, googleKey)
       } catch (error) {
@@ -357,8 +407,15 @@ async function route(req, res) {
       }
     }
 
+    if (!result && geoapifyKey) {
+      try {
+        result = await routeWithGeoapify(fromLat, fromLng, toLat, toLng, geoapifyKey)
+      } catch (error) {
+        lastError = error
+      }
+    }
+
     if (!result) {
-      // Still return a usable straight line so the mobile map can draw something.
       result = {
         points: [
           { lat: fromLat, lng: fromLng },
@@ -366,6 +423,9 @@ async function route(req, res) {
         ],
         distanceText: '',
         durationText: '',
+        durationInTrafficText: '',
+        trafficLevel: 'unknown',
+        hasTraffic: false,
         source: 'fallback',
         warning: lastError?.message || 'Routing providers unavailable',
       }

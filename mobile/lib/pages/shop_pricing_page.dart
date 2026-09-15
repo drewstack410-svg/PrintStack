@@ -2,8 +2,10 @@ import 'package:flutter/material.dart';
 
 import '../components/buttons/gradient_button.dart';
 import '../components/common/empty_state.dart';
+import '../components/common/message_banner.dart';
 import '../components/partners/partner_avatar.dart';
 import '../models/partner.dart';
+import '../services/partners_repository.dart';
 import '../theme.dart';
 import 'partner_order_page.dart';
 
@@ -32,14 +34,14 @@ class _ShopPricingPageState extends State<ShopPricingPage> {
     super.dispose();
   }
 
-  List<PaperSize> get _sizes {
-    final raw = widget.partner.paperSizes;
+  List<PaperSize> _sizesOf(Partner partner) {
+    final raw = partner.paperSizes;
     return raw.isEmpty ? PaperSize.defaults : raw;
   }
 
-  List<PaperSize> get _filtered {
+  List<PaperSize> _filteredOf(Partner partner) {
     final q = _query.trim().toLowerCase();
-    var list = _sizes.where((size) {
+    var list = _sizesOf(partner).where((size) {
       if (_unitFilter == _UnitFilter.inches && size.unit != 'in') {
         return false;
       }
@@ -75,217 +77,244 @@ class _ShopPricingPageState extends State<ShopPricingPage> {
     return w * h;
   }
 
-  void _openOrder() {
+  void _openOrder(Partner partner) {
+    if (partner.location?.online != true) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('This shop went offline.')),
+      );
+      return;
+    }
     Navigator.of(context).push(
       MaterialPageRoute<void>(
-        builder: (_) => PartnerOrderPage(partner: widget.partner),
+        builder: (_) => PartnerOrderPage(partner: partner),
       ),
     );
   }
 
   @override
   Widget build(BuildContext context) {
-    final partner = widget.partner;
-    final online = partner.location?.online == true;
-    final filtered = _filtered;
-    final bottomInset = MediaQuery.paddingOf(context).bottom;
-    final shopName =
-        partner.companyName.isEmpty ? 'Shop pricing' : partner.companyName;
+    return StreamBuilder<Partner?>(
+      stream: PartnersRepository.instance.watchPartner(widget.partner.id),
+      builder: (context, snapshot) {
+        final partner = snapshot.data ?? widget.partner;
+        final online = partner.location?.online == true;
+        final filtered = _filteredOf(partner);
+        final sizes = _sizesOf(partner);
+        final bottomInset = MediaQuery.paddingOf(context).bottom;
+        final shopName =
+            partner.companyName.isEmpty ? 'Shop pricing' : partner.companyName;
 
-    return Scaffold(
-      backgroundColor: AppColors.mist,
-      appBar: AppBar(
-        titleSpacing: 0,
-        title: Row(
-          children: [
-            PartnerAvatar(
-              url: partner.logoUrl,
-              name: shopName,
-              size: 34,
-            ),
-            const SizedBox(width: 10),
-            Expanded(
-              child: Text(
-                shopName,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-              ),
-            ),
-          ],
-        ),
-        actions: [
-          Padding(
-            padding: const EdgeInsets.only(right: 16),
-            child: Center(child: _StatusGlowLight(online: online)),
-          ),
-        ],
-      ),
-      body: Column(
-        children: [
-          Expanded(
-            child: ListView(
-              padding: EdgeInsets.fromLTRB(14, 12, 14, 20 + bottomInset + 80),
+        return Scaffold(
+          backgroundColor: AppColors.mist,
+          appBar: AppBar(
+            titleSpacing: 0,
+            title: Row(
               children: [
-                if ((partner.location?.label ?? '').isNotEmpty)
-                  Padding(
-                    padding: const EdgeInsets.only(bottom: 10),
-                    child: Text(
-                      partner.location!.label,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(
-                        color: AppColors.muted,
-                        fontSize: 13,
-                      ),
-                    ),
-                  ),
-                TextField(
-                  controller: _searchController,
-                  onChanged: (value) => setState(() => _query = value),
-                  decoration: InputDecoration(
-                    isDense: true,
-                    hintText: 'Search layouts…',
-                    prefixIcon: const Icon(Icons.search, size: 20),
-                    suffixIcon: _query.isEmpty
-                        ? null
-                        : IconButton(
-                            tooltip: 'Clear',
-                            onPressed: () {
-                              _searchController.clear();
-                              setState(() => _query = '');
-                            },
-                            icon: const Icon(Icons.close, size: 18),
-                          ),
+                PartnerAvatar(
+                  url: partner.logoUrl,
+                  name: shopName,
+                  size: 34,
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Text(
+                    shopName,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
                   ),
                 ),
-                const SizedBox(height: 10),
-                Row(
-                  children: [
-                    Expanded(
-                      child: DropdownButtonFormField<_UnitFilter>(
-                        value: _unitFilter,
-                        isDense: true,
-                        decoration: const InputDecoration(
-                          isDense: true,
-                          labelText: 'Unit',
-                          contentPadding: EdgeInsets.symmetric(
-                            horizontal: 12,
-                            vertical: 10,
-                          ),
-                        ),
-                        items: const [
-                          DropdownMenuItem(
-                            value: _UnitFilter.all,
-                            child: Text('All units'),
-                          ),
-                          DropdownMenuItem(
-                            value: _UnitFilter.inches,
-                            child: Text('Inches'),
-                          ),
-                          DropdownMenuItem(
-                            value: _UnitFilter.mm,
-                            child: Text('Millimeters'),
-                          ),
-                        ],
-                        onChanged: (value) {
-                          if (value == null) {
-                            return;
-                          }
-                          setState(() => _unitFilter = value);
-                        },
-                      ),
-                    ),
-                    const SizedBox(width: 8),
-                    Expanded(
-                      child: DropdownButtonFormField<_SortMode>(
-                        value: _sortMode,
-                        isDense: true,
-                        decoration: const InputDecoration(
-                          isDense: true,
-                          labelText: 'Sort',
-                          contentPadding: EdgeInsets.symmetric(
-                            horizontal: 12,
-                            vertical: 10,
-                          ),
-                        ),
-                        items: const [
-                          DropdownMenuItem(
-                            value: _SortMode.name,
-                            child: Text('Name'),
-                          ),
-                          DropdownMenuItem(
-                            value: _SortMode.priceBw,
-                            child: Text('B&W price'),
-                          ),
-                          DropdownMenuItem(
-                            value: _SortMode.priceColor,
-                            child: Text('Color price'),
-                          ),
-                          DropdownMenuItem(
-                            value: _SortMode.size,
-                            child: Text('Size'),
-                          ),
-                        ],
-                        onChanged: (value) {
-                          if (value == null) {
-                            return;
-                          }
-                          setState(() => _sortMode = value);
-                        },
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 12),
-                Text(
-                  '${filtered.length} layout${filtered.length == 1 ? '' : 's'}',
-                  style: const TextStyle(
-                    color: AppColors.muted,
-                    fontWeight: FontWeight.w700,
-                    fontSize: 12,
-                  ),
-                ),
-                const SizedBox(height: 8),
-                if (filtered.isEmpty)
-                  const EmptyState(
-                    icon: Icons.crop_free,
-                    title: 'No layouts found',
-                    message: 'Try another search or clear the filters.',
-                  )
-                else
-                  Material(
-                    color: Colors.white,
-                    borderRadius: BorderRadius.circular(14),
-                    child: Column(
-                      children: [
-                        for (var i = 0; i < filtered.length; i++) ...[
-                          _PricingRow(size: filtered[i]),
-                          if (i < filtered.length - 1)
-                            const Divider(height: 1, indent: 12, endIndent: 12),
-                        ],
-                      ],
-                    ),
-                  ),
               ],
             ),
+            actions: [
+              Padding(
+                padding: const EdgeInsets.only(right: 16),
+                child: Center(child: _StatusGlowLight(online: online)),
+              ),
+            ],
           ),
-          Material(
-            elevation: 10,
-            color: Colors.white,
-            shadowColor: Colors.black26,
-            child: SafeArea(
-              top: false,
-              child: Padding(
-                padding: const EdgeInsets.fromLTRB(14, 10, 14, 10),
-                child: GradientButton(
-                  label: 'Print at this shop',
-                  onPressed: _sizes.isEmpty ? null : _openOrder,
+          body: Column(
+            children: [
+              if (!online)
+                const Padding(
+                  padding: EdgeInsets.fromLTRB(14, 12, 14, 0),
+                  child: MessageBanner(
+                    message: 'This shop is offline. Printing is unavailable.',
+                    isError: true,
+                  ),
+                ),
+              Expanded(
+                child: ListView(
+                  padding:
+                      EdgeInsets.fromLTRB(14, 12, 14, 20 + bottomInset + 80),
+                  children: [
+                    if ((partner.location?.label ?? '').isNotEmpty)
+                      Padding(
+                        padding: const EdgeInsets.only(bottom: 10),
+                        child: Text(
+                          partner.location!.label,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                            color: AppColors.muted,
+                            fontSize: 13,
+                          ),
+                        ),
+                      ),
+                    TextField(
+                      controller: _searchController,
+                      onChanged: (value) => setState(() => _query = value),
+                      decoration: InputDecoration(
+                        isDense: true,
+                        hintText: 'Search layouts…',
+                        prefixIcon: const Icon(Icons.search, size: 20),
+                        suffixIcon: _query.isEmpty
+                            ? null
+                            : IconButton(
+                                tooltip: 'Clear',
+                                onPressed: () {
+                                  _searchController.clear();
+                                  setState(() => _query = '');
+                                },
+                                icon: const Icon(Icons.close, size: 18),
+                              ),
+                      ),
+                    ),
+                    const SizedBox(height: 10),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: DropdownButtonFormField<_UnitFilter>(
+                            value: _unitFilter,
+                            isDense: true,
+                            decoration: const InputDecoration(
+                              isDense: true,
+                              labelText: 'Unit',
+                              contentPadding: EdgeInsets.symmetric(
+                                horizontal: 12,
+                                vertical: 10,
+                              ),
+                            ),
+                            items: const [
+                              DropdownMenuItem(
+                                value: _UnitFilter.all,
+                                child: Text('All units'),
+                              ),
+                              DropdownMenuItem(
+                                value: _UnitFilter.inches,
+                                child: Text('Inches'),
+                              ),
+                              DropdownMenuItem(
+                                value: _UnitFilter.mm,
+                                child: Text('Millimeters'),
+                              ),
+                            ],
+                            onChanged: (value) {
+                              if (value == null) {
+                                return;
+                              }
+                              setState(() => _unitFilter = value);
+                            },
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: DropdownButtonFormField<_SortMode>(
+                            value: _sortMode,
+                            isDense: true,
+                            decoration: const InputDecoration(
+                              isDense: true,
+                              labelText: 'Sort',
+                              contentPadding: EdgeInsets.symmetric(
+                                horizontal: 12,
+                                vertical: 10,
+                              ),
+                            ),
+                            items: const [
+                              DropdownMenuItem(
+                                value: _SortMode.name,
+                                child: Text('Name'),
+                              ),
+                              DropdownMenuItem(
+                                value: _SortMode.priceBw,
+                                child: Text('B&W price'),
+                              ),
+                              DropdownMenuItem(
+                                value: _SortMode.priceColor,
+                                child: Text('Color price'),
+                              ),
+                              DropdownMenuItem(
+                                value: _SortMode.size,
+                                child: Text('Size'),
+                              ),
+                            ],
+                            onChanged: (value) {
+                              if (value == null) {
+                                return;
+                              }
+                              setState(() => _sortMode = value);
+                            },
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 12),
+                    Text(
+                      '${filtered.length} layout${filtered.length == 1 ? '' : 's'}',
+                      style: const TextStyle(
+                        color: AppColors.muted,
+                        fontWeight: FontWeight.w700,
+                        fontSize: 12,
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    if (filtered.isEmpty)
+                      const EmptyState(
+                        icon: Icons.crop_free,
+                        title: 'No layouts found',
+                        message: 'Try another search or clear the filters.',
+                      )
+                    else
+                      Material(
+                        color: Colors.white,
+                        borderRadius: BorderRadius.circular(14),
+                        child: Column(
+                          children: [
+                            for (var i = 0; i < filtered.length; i++) ...[
+                              _PricingRow(size: filtered[i]),
+                              if (i < filtered.length - 1)
+                                const Divider(
+                                  height: 1,
+                                  indent: 12,
+                                  endIndent: 12,
+                                ),
+                            ],
+                          ],
+                        ),
+                      ),
+                  ],
                 ),
               ),
-            ),
+              Material(
+                elevation: 10,
+                color: Colors.white,
+                shadowColor: Colors.black26,
+                child: SafeArea(
+                  top: false,
+                  child: Padding(
+                    padding: const EdgeInsets.fromLTRB(14, 10, 14, 10),
+                    child: GradientButton(
+                      label: online ? 'Print at this shop' : 'Shop offline',
+                      onPressed: !online || sizes.isEmpty
+                          ? null
+                          : () => _openOrder(partner),
+                    ),
+                  ),
+                ),
+              ),
+            ],
           ),
-        ],
-      ),
+        );
+      },
     );
   }
 }

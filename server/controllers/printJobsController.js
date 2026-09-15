@@ -1,5 +1,6 @@
 const { FieldValue } = require('firebase-admin/firestore')
 const { db } = require('../firestore')
+const { isLocationOnline } = require('../lib/location')
 const { normalizePaperSizes } = require('../lib/paperSizes')
 
 const STATUSES = new Set([
@@ -370,7 +371,15 @@ async function createCustomerPrintJob(req, res) {
     return
   }
 
-  const paperSizes = normalizePaperSizes(partnerSnap.data()?.paperSizes)
+  const partnerData = partnerSnap.data() || {}
+  if (!isLocationOnline(partnerData.location)) {
+    res.status(409).json({
+      error: 'This shop is currently offline. Try again when they are online.',
+    })
+    return
+  }
+
+  const paperSizes = normalizePaperSizes(partnerData.paperSizes)
   const rawDocuments = Array.isArray(req.body.documents)
     ? req.body.documents
     : [

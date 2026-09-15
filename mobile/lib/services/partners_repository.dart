@@ -26,4 +26,25 @@ class PartnersRepository {
       return partners;
     });
   }
+
+  /// Realtime stream of partners that are currently online.
+  Stream<List<Partner>> watchOnlinePartners() {
+    return watchPartners().map(
+      (partners) =>
+          partners.where((p) => p.location?.online == true).toList(growable: false),
+    );
+  }
+
+  Stream<Partner?> watchPartner(String partnerId) {
+    final id = partnerId.trim();
+    if (id.isEmpty) {
+      return Stream.value(null);
+    }
+    return _firestore.collection('partners').doc(id).snapshots().map((snap) {
+      if (!snap.exists) {
+        return null;
+      }
+      return Partner.fromFirestore(snap.id, snap.data()!);
+    });
+  }
 }

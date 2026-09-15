@@ -8,6 +8,7 @@ import '../components/common/empty_state.dart';
 import '../components/common/message_banner.dart';
 import '../models/partner.dart';
 import '../models/print_draft_document.dart';
+import '../services/partners_repository.dart';
 import '../theme.dart';
 import 'partner_order_page.dart';
 import 'print_order_payment_page.dart';
@@ -29,6 +30,8 @@ class PrintQueuePage extends StatefulWidget {
 
 class _PrintQueuePageState extends State<PrintQueuePage> {
   late List<PrintDraftDocument> _documents;
+  late final Stream<Partner?> _partnerStream;
+  Partner? _livePartner;
   bool _printing = false;
   String? _error;
   String? _success;
@@ -37,7 +40,11 @@ class _PrintQueuePageState extends State<PrintQueuePage> {
   void initState() {
     super.initState();
     _documents = List<PrintDraftDocument>.from(widget.documents);
+    _livePartner = widget.partner;
+    _partnerStream = PartnersRepository.instance.watchPartner(widget.partner.id);
   }
+
+  bool get _shopOnline => _livePartner?.location?.online == true;
 
   double get _orderTotal =>
       _documents.fold<double>(0, (sum, doc) => sum + doc.lineTotal);
@@ -74,6 +81,13 @@ class _PrintQueuePageState extends State<PrintQueuePage> {
   Future<void> _print() async {
     if (_documents.isEmpty) {
       setState(() => _error = 'Add at least one document to print.');
+      return;
+    }
+    if (!_shopOnline) {
+      setState(
+        () => _error =
+            'This shop went offline. You can’t submit until they are online again.',
+      );
       return;
     }
 
@@ -132,6 +146,7 @@ class _PrintQueuePageState extends State<PrintQueuePage> {
               printJobId: printJobId,
               orderNumber: orderNumber,
               amountDisplay: amountDisplay,
+              documents: List<PrintDraftDocument>.from(_documents),
             ),
           ),
         );
@@ -181,70 +196,85 @@ class _PrintQueuePageState extends State<PrintQueuePage> {
     final shopName =
         widget.partner.companyName.isEmpty ? 'Shop' : widget.partner.companyName;
 
-    return Scaffold(
-      backgroundColor: AppColors.mist,
-      appBar: AppBar(
-        title: const Text('Papers to print'),
-      ),
-      body: Column(
-        children: [
-          Expanded(
-            child: _documents.isEmpty
-                ? const Padding(
-                    padding: EdgeInsets.all(16),
-                    child: EmptyState(
-                      icon: Icons.print_outlined,
-                      title: 'Nothing to print yet',
-                      message: 'Add a document to build your print list.',
-                    ),
-                  )
-                : ListView(
-                    padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
-                    children: [
-                      Text(
-                        'These papers will be printed at $shopName. Add more if you need, then tap Print.',
-                        style: const TextStyle(
-                          color: AppColors.muted,
-                          fontSize: 14,
-                          height: 1.35,
-                        ),
-                      ),
-                      const SizedBox(height: 14),
-                      ...List.generate(_documents.length, (index) {
-                        final doc = _documents[index];
-                        return Padding(
-                          padding: const EdgeInsets.only(bottom: 10),
-                          child: _QueueDocCard(
-                            doc: doc,
-                            onRemove: _printing ? null : () => _removeAt(index),
-                          ),
-                        );
-                      }),
-                    ],
-                  ),
+    return StreamBuilder<Partner?>(
+      stream: _partnerStream,
+      builder: (context, snapshot) {
+        if (snapshot.hasData) {
+          _livePartner = snapshot.data;
+        }
+        final online = _shopOnline;
+
+        return Scaffold(
+          backgroundColor: AppColors.mist,
+          appBar: AppBar(
+            title: const Text('Papers to print'),
           ),
-          if (_error != null)
-            Padding(
-              padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
-              child: MessageBanner(message: _error!, isError: true),
-            ),
-          if (_success != null)
-            Padding(
-              padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
-              child: MessageBanner(message: _success!),
-            ),
-          Material(
-            elevation: 12,
-            color: Colors.white,
-            shadowColor: Colors.black38,
-            child: SafeArea(
-              top: false,
-              child: Padding(
-                padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Row(
+          body: Column(
+            children: [
+              if (!online)
+                const Padding(
+                  padding: EdgeInsets.fromLTRB(16, 12, 16, 0),
+                  child: MessageBanner(
+                    message:
+                        'This shop is offline. Submitting is disabled until they come back online.',
+                    isError: true,
+                  ),
+                ),
+              Expanded(
+                child: _documents.isEmpty
+                    ? const Padding(
+                        padding: EdgeInsets.all(16),
+                        child: EmptyState(
+                          icon: Icons.print_outlined,
+                          title: 'Nothing to print yet',
+                          message: 'Add a document to build your print list.',
+                        ),
+                      )
+                    : ListView(
+                        padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
+                        children: [
+                          Text(
+                            'These papers will be printed at $shopName. Add more if you need, then tap Print.',
+                            style: const TextStyle(
+                              color: AppColors.muted,
+                              fontSize: 14,
+                              height: 1.35,
+                            ),
+                          ),
+                          const SizedBox(height: 14),
+                          ...List.generate(_documents.length, (index) {
+                            final doc = _documents[index];
+                            return Padding(
+                              padding: const EdgeInsets.only(bottom: 10),
+                              child: _QueueDocCard(
+                                doc: doc,
+                                onRemove:
+                                    _printing ? null : () => _removeAt(index),
+                              ),
+                            );
+                          }),
+                        ],
+                      ),
+              ),
+              if (_error != null)
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+                  child: MessageBanner(message: _error!, isError: true),
+                ),
+              if (_success != null)
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+                  child: MessageBanner(message: _success!),
+                ),
+              Material(
+                elevation: 12,
+                color: Colors.white,
+                shadowColor: Colors.black38,
+                child: SafeArea(
+                  top: false,
+                  child: Padding(
+                    padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
+                    child: Row(
                       children: [
                         Expanded(
                           child: Column(
@@ -276,7 +306,8 @@ class _PrintQueuePageState extends State<PrintQueuePage> {
                           onPressed: _printing ? null : _addMore,
                           style: OutlinedButton.styleFrom(
                             minimumSize: const Size(0, 48),
-                            padding: const EdgeInsets.symmetric(horizontal: 16),
+                            padding:
+                                const EdgeInsets.symmetric(horizontal: 16),
                           ),
                           child: const Text('Add more'),
                         ),
@@ -284,22 +315,24 @@ class _PrintQueuePageState extends State<PrintQueuePage> {
                         SizedBox(
                           width: 132,
                           child: GradientButton(
-                            label: 'Pay & print',
+                            label: online ? 'Pay & print' : 'Offline',
                             busy: _printing,
-                            onPressed: !_printing && _documents.isNotEmpty
+                            onPressed: online &&
+                                    !_printing &&
+                                    _documents.isNotEmpty
                                 ? _print
                                 : null,
                           ),
                         ),
                       ],
                     ),
-                  ],
+                  ),
                 ),
               ),
-            ),
+            ],
           ),
-        ],
-      ),
+        );
+      },
     );
   }
 }

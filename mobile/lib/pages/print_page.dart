@@ -33,6 +33,7 @@ class _PrintPageState extends State<PrintPage> {
   List<Partner> _mappable = const [];
   Set<Marker> _markers = {};
   Set<Polyline> _polylines = {};
+  DirectionsRoute? _activeRoute;
   String? _selectedId;
   bool _buildingMarkers = false;
   bool _buildingRoute = false;
@@ -52,8 +53,8 @@ class _PrintPageState extends State<PrintPage> {
   @override
   void initState() {
     super.initState();
-    _partnersStream = PartnersRepository.instance.watchPartners();
-    _tick = Timer.periodic(const Duration(seconds: 30), (_) {
+    _partnersStream = PartnersRepository.instance.watchOnlinePartners();
+    _tick = Timer.periodic(const Duration(seconds: 15), (_) {
       if (mounted) {
         setState(() {});
         unawaited(_rebuildMarkers(_mappable));
@@ -218,7 +219,7 @@ class _PrintPageState extends State<PrintPage> {
     return partners
         .where((p) {
           final loc = p.location;
-          if (loc == null) {
+          if (loc == null || loc.online != true) {
             return false;
           }
           if (loc.lat == 0 && loc.lng == 0) {
@@ -228,12 +229,6 @@ class _PrintPageState extends State<PrintPage> {
         })
         .toList()
       ..sort((a, b) {
-        final aOnline = a.location?.online == true ? 0 : 1;
-        final bOnline = b.location?.online == true ? 0 : 1;
-        if (aOnline != bOnline) {
-          return aOnline.compareTo(bOnline);
-        }
-
         final aDist = _distanceMetersTo(a);
         final bDist = _distanceMetersTo(b);
         if (aDist != null && bDist != null) {
@@ -310,6 +305,7 @@ class _PrintPageState extends State<PrintPage> {
       if (mounted) {
         setState(() {
           _polylines = {};
+          _activeRoute = null;
         });
       }
       await _focusPartner(partner);
@@ -330,15 +326,17 @@ class _PrintPageState extends State<PrintPage> {
       }
 
       setState(() {
+        _activeRoute = route;
         _polylines = {
           Polyline(
             polylineId: const PolylineId('route-to-partner'),
             points: route.points,
-            color: AppColors.purpleDark,
-            width: 5,
+            color: route.lineColor,
+            width: 6,
             startCap: Cap.roundCap,
             endCap: Cap.roundCap,
             jointType: JointType.round,
+            geodesic: false,
           ),
         };
       });
@@ -391,6 +389,12 @@ class _PrintPageState extends State<PrintPage> {
   }
 
   void _openOrder(Partner partner) {
+    if (partner.location?.online != true) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('This shop is offline.')),
+      );
+      return;
+    }
     Navigator.of(context).push(
       MaterialPageRoute<void>(
         builder: (_) => ShopPricingPage(partner: partner),
@@ -410,13 +414,15 @@ class _PrintPageState extends State<PrintPage> {
         final orderChanged = nextIds != prevIds ||
             !_samePartnerOrder(_mappable, mappable);
 
-        if (orderChanged) {
+          if (orderChanged) {
           _mappable = mappable;
           if (_selectedId == null && mappable.isNotEmpty) {
             _selectedId = mappable.first.id;
           } else if (_selectedId != null &&
               mappable.every((p) => p.id != _selectedId)) {
             _selectedId = mappable.isEmpty ? null : mappable.first.id;
+            _polylines = {};
+            _activeRoute = null;
           }
           final selectedIndex = _selectedId == null
               ? 0
@@ -447,6 +453,7 @@ class _PrintPageState extends State<PrintPage> {
               compassEnabled: false,
               mapToolbarEnabled: false,
               zoomControlsEnabled: false,
+              trafficEnabled: true,
               markers: _markers,
               polylines: _polylines,
               onMapCreated: (controller) async {
@@ -463,36 +470,47 @@ class _PrintPageState extends State<PrintPage> {
                 left: 16,
                 right: 16,
                 top: 12,
-                child: Material(
-                  color: Colors.white,
-                  elevation: 3,
-                  borderRadius: BorderRadius.circular(12),
-                  child: const Padding(
-                    padding: EdgeInsets.symmetric(
-                      horizontal: 12,
-                      vertical: 10,
-                    ),
-                    child: Row(
-                      children: [
-                        Icon(
-                          Icons.touch_app_outlined,
-                          color: AppColors.purpleDark,
-                          size: 18,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    Material(
+                      color: Colors.white,
+                      elevation: 3,
+                      borderRadius: BorderRadius.circular(12),
+                      child: const Padding(
+                        padding: EdgeInsets.symmetric(
+                          horizontal: 12,
+                          vertical: 10,
                         ),
-                        SizedBox(width: 8),
-                        Expanded(
-                          child: Text(
-                            'Swipe to browse nearby shops, then tap one to view pricing.',
-                            style: TextStyle(
-                              fontWeight: FontWeight.w700,
-                              color: AppColors.navy,
-                              fontSize: 13,
+                        child: Row(
+                          children: [
+                            Icon(
+                              Icons.touch_app_outlined,
+                              color: AppColors.purpleDark,
+                              size: 18,
                             ),
-                          ),
+                            SizedBox(width: 8),
+                            Expanded(
+                              child: Text(
+                                'Swipe to browse nearby shops, then tap one to view pricing.',
+                                style: TextStyle(
+                                  fontWeight: FontWeight.w700,
+                                  color: AppColors.navy,
+                                  fontSize: 13,
+                                ),
+                              ),
+                            ),
+                          ],
                         ),
-                      ],
+                      ),
                     ),
-                  ),
+                    if (_activeRoute != null &&
+                        (_activeRoute!.etaLabel.isNotEmpty ||
+                            _activeRoute!.distanceText.isNotEmpty)) ...[
+                      const SizedBox(height: 8),
+                      _RouteTrafficChip(route: _activeRoute!),
+                    ],
+                  ],
                 ),
               ),
             Positioned(
@@ -534,9 +552,9 @@ class _PrintPageState extends State<PrintPage> {
                 right: 24,
                 top: 24,
                 child: _MapBanner(
-                  title: 'No shop locations yet',
+                  title: 'No shops online',
                   message:
-                      'Shops with a Philippines location will appear on this map.',
+                      'Only active shops appear here. Check back when a partner comes online.',
                 ),
               ),
             if (mappable.isNotEmpty)
@@ -550,6 +568,7 @@ class _PrintPageState extends State<PrintPage> {
                   pageIndex: _pageIndex,
                   controller: _pageController,
                   distanceMetersFor: _distanceMetersTo,
+                  selectedRoute: _activeRoute,
                   onPageChanged: (index) {
                     final partner = mappable[index];
                     setState(() => _pageIndex = index);
@@ -574,6 +593,7 @@ class _PartnerCarousel extends StatelessWidget {
     required this.distanceMetersFor,
     required this.onPageChanged,
     required this.onOpen,
+    this.selectedRoute,
   });
 
   final List<Partner> partners;
@@ -583,6 +603,7 @@ class _PartnerCarousel extends StatelessWidget {
   final double? Function(Partner partner) distanceMetersFor;
   final ValueChanged<int> onPageChanged;
   final ValueChanged<Partner> onOpen;
+  final DirectionsRoute? selectedRoute;
 
   @override
   Widget build(BuildContext context) {
@@ -615,6 +636,8 @@ class _PartnerCarousel extends StatelessWidget {
                       partner: partner,
                       selected: selected,
                       distanceMeters: distanceMetersFor(partner),
+                      routeEta: selected ? selectedRoute?.etaLabel : null,
+                      routeDistance: selected ? selectedRoute?.distanceText : null,
                       onTap: () => onOpen(partner),
                     ),
                   ),
@@ -686,14 +709,22 @@ class _FloatingPartnerCard extends StatelessWidget {
     required this.selected,
     required this.onTap,
     this.distanceMeters,
+    this.routeEta,
+    this.routeDistance,
   });
 
   final Partner partner;
   final bool selected;
   final VoidCallback onTap;
   final double? distanceMeters;
+  final String? routeEta;
+  final String? routeDistance;
 
   String? get _distanceLabel {
+    final route = routeDistance?.trim();
+    if (route != null && route.isNotEmpty) {
+      return route;
+    }
     final meters = distanceMeters;
     if (meters == null) {
       return null;
@@ -780,10 +811,13 @@ class _FloatingPartnerCard extends StatelessWidget {
               ),
               const SizedBox(height: 2),
               Text(
-                distance ??
-                    ((location?.label ?? '').isEmpty
-                        ? 'Nearby'
-                        : location!.label),
+                [
+                  if ((routeEta ?? '').trim().isNotEmpty) routeEta!.trim(),
+                  distance ??
+                      ((location?.label ?? '').isEmpty
+                          ? 'Nearby'
+                          : location!.label),
+                ].where((part) => part.trim().isNotEmpty).join(' · '),
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
                 textAlign: TextAlign.center,
@@ -863,6 +897,60 @@ class _OnlineGlowPingState extends State<_OnlineGlowPing>
             ],
           );
         },
+      ),
+    );
+  }
+}
+
+class _RouteTrafficChip extends StatelessWidget {
+  const _RouteTrafficChip({required this.route});
+
+  final DirectionsRoute route;
+
+  @override
+  Widget build(BuildContext context) {
+    final parts = <String>[
+      if (route.distanceText.trim().isNotEmpty) route.distanceText.trim(),
+      if (route.etaLabel.isNotEmpty) route.etaLabel,
+      route.trafficLabel,
+    ];
+
+    return Material(
+      color: Colors.white,
+      elevation: 2,
+      borderRadius: BorderRadius.circular(12),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+        child: Row(
+          children: [
+            Container(
+              width: 10,
+              height: 10,
+              decoration: BoxDecoration(
+                color: route.lineColor,
+                shape: BoxShape.circle,
+              ),
+            ),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Text(
+                parts.join(' · '),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(
+                  fontWeight: FontWeight.w700,
+                  color: AppColors.navy,
+                  fontSize: 12.5,
+                ),
+              ),
+            ),
+            const Icon(
+              Icons.traffic_rounded,
+              size: 16,
+              color: AppColors.muted,
+            ),
+          ],
+        ),
       ),
     );
   }

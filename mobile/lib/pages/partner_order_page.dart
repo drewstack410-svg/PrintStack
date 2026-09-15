@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:math' as math;
 
 import 'package:file_picker/file_picker.dart';
@@ -8,6 +9,7 @@ import '../components/buttons/gradient_button.dart';
 import '../components/common/message_banner.dart';
 import '../models/partner.dart';
 import '../models/print_draft_document.dart';
+import '../services/partners_repository.dart';
 import '../theme.dart';
 import '../utils/pdf_pages.dart';
 import 'print_queue_page.dart';
@@ -38,10 +40,32 @@ class _PartnerOrderPageState extends State<PartnerOrderPage> {
   int _colorPages = 0;
   List<bool> _pageIsColor = const [];
   _PageInkFilter _pageFilter = _PageInkFilter.all;
-  bool _layoutFromPdf = false;
   bool _readingPdf = false;
+  bool _layoutFromPdf = false;
   String? _error;
   String? _success;
+  late final Stream<Partner?> _partnerStream;
+  Partner? _livePartner;
+  StreamSubscription<Partner?>? _partnerSub;
+
+  @override
+  void initState() {
+    super.initState();
+    _livePartner = widget.partner;
+    _partnerStream = PartnersRepository.instance.watchPartner(widget.partner.id);
+    _partnerSub = _partnerStream.listen((partner) {
+      if (!mounted) return;
+      setState(() => _livePartner = partner ?? widget.partner);
+    });
+  }
+
+  @override
+  void dispose() {
+    _partnerSub?.cancel();
+    super.dispose();
+  }
+
+  bool get _shopOnline => _livePartner?.location?.online == true;
 
   List<PaperSize> get _sizes => widget.partner.paperSizes;
 
@@ -200,6 +224,13 @@ class _PartnerOrderPageState extends State<PartnerOrderPage> {
       setState(() => _error = 'Choose a document first.');
       return;
     }
+    if (!_shopOnline) {
+      setState(
+        () => _error =
+            'This shop went offline. You can’t continue until they are online.',
+      );
+      return;
+    }
 
     setState(() {
       _error = null;
@@ -214,7 +245,7 @@ class _PartnerOrderPageState extends State<PartnerOrderPage> {
     Navigator.of(context).pushReplacement(
       MaterialPageRoute<void>(
         builder: (_) => PrintQueuePage(
-          partner: widget.partner,
+          partner: _livePartner ?? widget.partner,
           documents: [draft],
         ),
       ),
@@ -223,8 +254,8 @@ class _PartnerOrderPageState extends State<PartnerOrderPage> {
 
   @override
   Widget build(BuildContext context) {
-    final partner = widget.partner;
-    final online = partner.location?.online == true;
+    final partner = _livePartner ?? widget.partner;
+    final online = _shopOnline;
     final path = _picked?.path;
     final showPreview = path != null && path.isNotEmpty;
 
@@ -241,6 +272,15 @@ class _PartnerOrderPageState extends State<PartnerOrderPage> {
       ),
       body: Column(
         children: [
+          if (!online)
+            const Padding(
+              padding: EdgeInsets.fromLTRB(16, 10, 16, 0),
+              child: MessageBanner(
+                message:
+                    'This shop is offline. You can’t submit a print request right now.',
+                isError: true,
+              ),
+            ),
           Expanded(
             child: Stack(
               children: [
@@ -384,10 +424,13 @@ class _PartnerOrderPageState extends State<PartnerOrderPage> {
                         SizedBox(
                           width: 148,
                           child: GradientButton(
-                            label: widget.returnDocumentOnly
-                                ? 'Add to list'
-                                : 'Continue',
-                            onPressed: _canContinue ? _continueToQueue : null,
+                            label: !online
+                                ? 'Shop offline'
+                                : widget.returnDocumentOnly
+                                    ? 'Add to list'
+                                    : 'Continue',
+                            onPressed:
+                                online && _canContinue ? _continueToQueue : null,
                           ),
                         ),
                       ],

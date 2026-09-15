@@ -288,6 +288,10 @@ class ApiClient {
       List<({double lat, double lng})> points,
       String distanceText,
       String durationText,
+      String durationInTrafficText,
+      String trafficLevel,
+      bool hasTraffic,
+      String source,
     })
   >
   fetchRoute({
@@ -328,6 +332,10 @@ class ApiClient {
       points: points,
       distanceText: (route['distanceText'] ?? '').toString(),
       durationText: (route['durationText'] ?? '').toString(),
+      durationInTrafficText: (route['durationInTrafficText'] ?? '').toString(),
+      trafficLevel: (route['trafficLevel'] ?? 'unknown').toString(),
+      hasTraffic: route['hasTraffic'] == true,
+      source: (route['source'] ?? '').toString(),
     );
   }
 }
