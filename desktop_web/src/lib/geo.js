@@ -1,4 +1,9 @@
-import { fetchRouteViaApi, locateViaApi, reverseGeocodeViaApi } from '../api'
+import {
+  autocompleteLocationViaApi,
+  fetchRouteViaApi,
+  locateViaApi,
+  reverseGeocodeViaApi,
+} from '../api'
 
 /** Used only to load the Google Maps JS map widget (tiles), not for geo APIs. */
 export const GOOGLE_MAPS_API_KEY = import.meta.env.VITE_GOOGLE_MAPS_API_KEY || ''
@@ -121,6 +126,17 @@ export async function reverseGeocode(lat, lng, idToken) {
   } catch {
     return ''
   }
+}
+
+/** Place autocomplete through PrintStack API (Geoapify). */
+export async function searchLocations(query, idToken) {
+  const text = String(query || '').trim()
+  if (!idToken || text.length < 2) {
+    return []
+  }
+
+  const payload = await autocompleteLocationViaApi(idToken, text)
+  return Array.isArray(payload.results) ? payload.results : []
 }
 
 /** Driving route through PrintStack API. */

@@ -46,7 +46,7 @@ class PartnerCard extends StatelessWidget {
                   children: [
                     Text(
                       partner.companyName.isEmpty
-                          ? 'Untitled partner'
+                          ? 'Untitled shop'
                           : partner.companyName,
                       style: const TextStyle(
                         fontSize: 16,

@@ -75,7 +75,9 @@ export default function PrintJobsTable({ jobs }) {
             <TableRow key={job.id} hover sx={{ '& td': { py: 0.75, borderColor: 'divider' }, '&:last-of-type td': { borderBottom: 0 } }}>
               <TableCell>
                 <Typography variant="body2" fontWeight={700} noWrap>
-                  {job.documentName || 'Print job'}
+                  #{job.orderNumber || '—'} · {job.documentCount > 1
+                    ? `${job.documentCount} docs`
+                    : job.documentName || 'Print order'}
                 </Typography>
                 {job.customerName || job.customerEmail ? (
                   <Typography variant="caption" color="text.secondary" noWrap display="block">

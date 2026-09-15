@@ -16,6 +16,19 @@ contextBridge.exposeInMainWorld('printstack', {
   location: {
     current: () => ipcRenderer.invoke('location:current'),
   },
+  settings: {
+    getPrintJobsFolder: () => ipcRenderer.invoke('settings:getPrintJobsFolder'),
+    setPrintJobsFolder: (folderPath) => ipcRenderer.invoke('settings:setPrintJobsFolder', folderPath),
+    resetPrintJobsFolder: () => ipcRenderer.invoke('settings:resetPrintJobsFolder'),
+    pickPrintJobsFolder: () => ipcRenderer.invoke('settings:pickPrintJobsFolder'),
+    openPrintJobsFolder: () => ipcRenderer.invoke('settings:openPrintJobsFolder'),
+  },
+  shell: {
+    openExternal: (url) => ipcRenderer.invoke('shell:openExternal', url),
+  },
+  files: {
+    openJobPdf: (payload) => ipcRenderer.invoke('files:openJobPdf', payload),
+  },
   printers: {
     list: () => ipcRenderer.invoke('printers:list'),
     testPrint: (payload) => ipcRenderer.invoke('printers:testPrint', payload),

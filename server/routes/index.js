@@ -18,10 +18,11 @@ const {
   createPaperSize,
   deletePaperSize,
   listPaperSizes,
+  resetPaperSizes,
   updatePaperSize,
 } = require('../controllers/paperSizesController')
 const { updateMyLocation } = require('../controllers/locationController')
-const { locate, reverse, route } = require('../controllers/geoController')
+const { locate, reverse, autocomplete, route } = require('../controllers/geoController')
 const {
   createPrintJob,
   createCustomerPrintJob,
@@ -49,6 +50,7 @@ router.get('/me', requireAuth, me)
 router.patch('/me/location', requireAuth, requireAdmin, updateMyLocation)
 router.post('/geo/locate', requireAuth, locate)
 router.get('/geo/reverse', requireAuth, reverse)
+router.get('/geo/autocomplete', requireAuth, autocomplete)
 router.get('/geo/route', requireAuth, route)
 router.get('/partners', requireAuth, listPartners)
 router.post(
@@ -76,6 +78,7 @@ router.post('/staffs', requireAuth, requireAdmin, createStaff)
 router.patch('/staffs/:id', requireAuth, requireAdmin, updateStaff)
 router.delete('/staffs/:id', requireAuth, requireAdmin, deleteStaff)
 router.get('/paper-sizes', requireAuth, requireAdmin, listPaperSizes)
+router.post('/paper-sizes/reset', requireAuth, requireAdmin, resetPaperSizes)
 router.post('/paper-sizes', requireAuth, requireAdmin, createPaperSize)
 router.patch('/paper-sizes/:id', requireAuth, requireAdmin, updatePaperSize)
 router.delete('/paper-sizes/:id', requireAuth, requireAdmin, deletePaperSize)

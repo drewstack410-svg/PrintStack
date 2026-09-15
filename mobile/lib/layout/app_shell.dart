@@ -23,7 +23,10 @@ class AppShell extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final bottomId = selected == AppNavId.account ? AppNavId.home : selected;
+    final bottomId = switch (selected) {
+      AppNavId.account || AppNavId.location => AppNavId.home,
+      _ => selected,
+    };
     final printSelected = bottomId == AppNavId.print;
 
     return Scaffold(

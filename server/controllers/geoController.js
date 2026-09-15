@@ -1,3 +1,26 @@
+function envValue(...keys) {
+  for (const key of keys) {
+    const value = String(process.env[key] || '').trim()
+    if (value) {
+      return value
+    }
+  }
+  return ''
+}
+
+function geoapifyApiKey() {
+  // Accept VITE_ prefix if someone copied desktop_web/.env into server/.env
+  return envValue('GEOAPIFY_API_KEY', 'VITE_GEOAPIFY_API_KEY')
+}
+
+function geoapifyCountryCodes() {
+  return envValue('GEOAPIFY_COUNTRY_CODES', 'VITE_GEOAPIFY_COUNTRY_CODES') || 'ph'
+}
+
+function googleMapsApiKey() {
+  return envValue('GOOGLE_MAPS_API_KEY', 'VITE_GOOGLE_MAPS_API_KEY')
+}
+
 function featureLabel(properties = {}) {
   return properties.formatted || properties.address_line1 || properties.name || ''
 }
@@ -63,12 +86,12 @@ async function locateWithGeoapify(apiKey) {
 }
 
 async function reverseGeocode(lat, lng) {
-  const apiKey = process.env.GEOAPIFY_API_KEY || ''
+  const apiKey = geoapifyApiKey()
   if (!apiKey) {
     return ''
   }
 
-  const countryCodes = String(process.env.GEOAPIFY_COUNTRY_CODES || 'ph').toLowerCase()
+  const countryCodes = String(geoapifyCountryCodes()).toLowerCase()
   const params = new URLSearchParams({
     lat: String(lat),
     lon: String(lng),
@@ -196,8 +219,8 @@ async function routeWithGoogle(fromLat, fromLng, toLat, toLng, apiKey) {
 
 async function locate(req, res) {
   try {
-    const googleKey = process.env.GOOGLE_MAPS_API_KEY || ''
-    const geoapifyKey = process.env.GEOAPIFY_API_KEY || ''
+    const googleKey = googleMapsApiKey()
+    const geoapifyKey = geoapifyApiKey()
 
     let location = null
     let lastError = null
@@ -246,6 +269,65 @@ async function reverse(req, res) {
   }
 }
 
+async function autocomplete(req, res) {
+  try {
+    const query = String(req.query.q || req.query.text || '').trim()
+    if (query.length < 2) {
+      res.json({ results: [] })
+      return
+    }
+
+    const apiKey = geoapifyApiKey()
+    if (!apiKey) {
+      res.status(502).json({ error: 'Geocoding is not configured on the server' })
+      return
+    }
+
+    const countryCodes = String(geoapifyCountryCodes()).toLowerCase()
+    const params = new URLSearchParams({
+      text: query,
+      apiKey,
+      limit: '8',
+      lang: 'en',
+    })
+    if (countryCodes) {
+      params.set('filter', `countrycode:${countryCodes}`)
+    }
+
+    const response = await fetch(
+      `https://api.geoapify.com/v1/geocode/autocomplete?${params}`,
+    )
+    const payload = await response.json()
+    if (!response.ok) {
+      throw new Error(payload.message || 'Autocomplete failed')
+    }
+
+    const results = (payload.features || [])
+      .map((feature) => {
+        const properties = feature.properties || {}
+        const [lng, lat] = feature.geometry?.coordinates || []
+        const parsedLat = Number(lat)
+        const parsedLng = Number(lng)
+        if (!Number.isFinite(parsedLat) || !Number.isFinite(parsedLng)) {
+          return null
+        }
+        return {
+          id: properties.place_id || `${parsedLat},${parsedLng}`,
+          label: featureLabel(properties),
+          lat: parsedLat,
+          lng: parsedLng,
+        }
+      })
+      .filter(Boolean)
+
+    res.json({ results })
+  } catch (error) {
+    res.status(error.status || 500).json({
+      error: error.message || 'Autocomplete failed',
+    })
+  }
+}
+
 async function route(req, res) {
   try {
     const fromLat = requireNumber(req.query.fromLat ?? req.body?.fromLat, 'fromLat')
@@ -253,8 +335,8 @@ async function route(req, res) {
     const toLat = requireNumber(req.query.toLat ?? req.body?.toLat, 'toLat')
     const toLng = requireNumber(req.query.toLng ?? req.body?.toLng, 'toLng')
 
-    const geoapifyKey = process.env.GEOAPIFY_API_KEY || ''
-    const googleKey = process.env.GOOGLE_MAPS_API_KEY || ''
+    const geoapifyKey = geoapifyApiKey()
+    const googleKey = googleMapsApiKey()
 
     let result = null
     let lastError = null
@@ -298,5 +380,6 @@ async function route(req, res) {
 module.exports = {
   locate,
   reverse,
+  autocomplete,
   route,
 }

@@ -1,5 +1,10 @@
 const { db } = require('../firestore')
-const { DEFAULT_PAPER_SIZES, mapPaperSize, normalizePaperSizes } = require('../lib/paperSizes')
+const {
+  DEFAULT_PAPER_SIZES,
+  isLegacyDefaultPaperSizes,
+  mapPaperSize,
+  normalizePaperSizes,
+} = require('../lib/paperSizes')
 
 async function partnerContext(req, res) {
   const partnerId = req.profile?.partnerId
@@ -27,11 +32,26 @@ async function listPaperSizes(req, res) {
     return
   }
 
-  let paperSizes = normalizePaperSizes(context.partner.paperSizes)
-  if (!Array.isArray(context.partner.paperSizes) || context.partner.paperSizes.length === 0) {
+  const raw = context.partner.paperSizes
+  const needsSeed =
+    !Array.isArray(raw) || raw.length === 0 || isLegacyDefaultPaperSizes(raw)
+  const paperSizes = normalizePaperSizes(raw)
+
+  if (needsSeed) {
     await context.partnerRef.set({ paperSizes }, { merge: true })
   }
 
+  res.json({ paperSizes })
+}
+
+async function resetPaperSizes(req, res) {
+  const context = await partnerContext(req, res)
+  if (!context) {
+    return
+  }
+
+  const paperSizes = DEFAULT_PAPER_SIZES.map((size) => ({ ...size }))
+  await context.partnerRef.set({ paperSizes }, { merge: true })
   res.json({ paperSizes })
 }
 
@@ -123,6 +143,7 @@ async function deletePaperSize(req, res) {
 
 module.exports = {
   listPaperSizes,
+  resetPaperSizes,
   createPaperSize,
   updatePaperSize,
   deletePaperSize,

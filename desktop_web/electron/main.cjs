@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, session, shell } = require('electron')
+const { app, BrowserWindow, dialog, ipcMain, session, shell } = require('electron')
 const { execFile } = require('child_process')
 const fs = require('fs')
 const http = require('http')
@@ -37,6 +37,49 @@ function loadEnvFile() {
 }
 
 loadEnvFile()
+
+const SETTINGS_FILE = () => path.join(app.getPath('userData'), 'printstack-settings.json')
+
+function getDefaultPrintJobsFolder() {
+  return path.join(app.getPath('documents'), 'PrintStack')
+}
+
+function readAppSettings() {
+  try {
+    const raw = fs.readFileSync(SETTINGS_FILE(), 'utf8')
+    const parsed = JSON.parse(raw)
+    return parsed && typeof parsed === 'object' ? parsed : {}
+  } catch {
+    return {}
+  }
+}
+
+function writeAppSettings(next) {
+  const folder = path.dirname(SETTINGS_FILE())
+  fs.mkdirSync(folder, { recursive: true })
+  fs.writeFileSync(SETTINGS_FILE(), `${JSON.stringify(next, null, 2)}\n`, 'utf8')
+}
+
+function getConfiguredPrintJobsFolder() {
+  const configured = String(readAppSettings().printJobsFolder || '').trim()
+  return configured || null
+}
+
+function getPrintJobsFolder() {
+  return getConfiguredPrintJobsFolder() || getDefaultPrintJobsFolder()
+}
+
+function printJobsFolderInfo() {
+  const defaultPath = getDefaultPrintJobsFolder()
+  const configuredPath = getConfiguredPrintJobsFolder()
+  const currentPath = configuredPath || defaultPath
+  return {
+    defaultPath,
+    configuredPath,
+    currentPath,
+    isDefault: !configuredPath || configuredPath === defaultPath,
+  }
+}
 
 const googleApiKey = process.env.VITE_GOOGLE_MAPS_API_KEY || process.env.GOOGLE_MAPS_API_KEY || ''
 if (googleApiKey) {
@@ -124,6 +167,95 @@ app.whenReady().then(() => {
     node: process.versions.node,
     platform: process.platform,
   }))
+
+  ipcMain.handle('settings:getPrintJobsFolder', () => printJobsFolderInfo())
+
+  ipcMain.handle('settings:setPrintJobsFolder', (_event, folderPath) => {
+    const nextPath = String(folderPath || '').trim()
+    if (!nextPath) {
+      throw new Error('Choose a folder first')
+    }
+    fs.mkdirSync(nextPath, { recursive: true })
+    const settings = readAppSettings()
+    settings.printJobsFolder = nextPath
+    writeAppSettings(settings)
+    return printJobsFolderInfo()
+  })
+
+  ipcMain.handle('settings:resetPrintJobsFolder', () => {
+    const settings = readAppSettings()
+    delete settings.printJobsFolder
+    writeAppSettings(settings)
+    const defaultPath = getDefaultPrintJobsFolder()
+    fs.mkdirSync(defaultPath, { recursive: true })
+    return printJobsFolderInfo()
+  })
+
+  ipcMain.handle('settings:pickPrintJobsFolder', async (event) => {
+    const win = getWindow(event)
+    const current = getPrintJobsFolder()
+    fs.mkdirSync(current, { recursive: true })
+    const result = await dialog.showOpenDialog(win || undefined, {
+      title: 'Choose print folder',
+      defaultPath: current,
+      properties: ['openDirectory', 'createDirectory'],
+    })
+    if (result.canceled || !result.filePaths?.[0]) {
+      return { canceled: true, ...printJobsFolderInfo() }
+    }
+
+    const nextPath = result.filePaths[0]
+    fs.mkdirSync(nextPath, { recursive: true })
+    const settings = readAppSettings()
+    settings.printJobsFolder = nextPath
+    writeAppSettings(settings)
+    return { canceled: false, ...printJobsFolderInfo() }
+  })
+
+  ipcMain.handle('settings:openPrintJobsFolder', async () => {
+    const folder = getPrintJobsFolder()
+    fs.mkdirSync(folder, { recursive: true })
+    const error = await shell.openPath(folder)
+    if (error) {
+      throw new Error(error)
+    }
+    return { ok: true, path: folder }
+  })
+
+  ipcMain.handle('shell:openExternal', async (_event, url) => {
+    const target = String(url || '').trim()
+    if (!/^https?:\/\//i.test(target)) {
+      throw new Error('Only http(s) links can be opened')
+    }
+    await shell.openExternal(target)
+    return { ok: true }
+  })
+
+  ipcMain.handle('files:openJobPdf', async (_event, payload = {}) => {
+    const jobId = String(payload.jobId || '').trim()
+    const fileUrl = String(payload.fileUrl || '').trim()
+    const documentName = String(payload.documentName || 'document.pdf').trim()
+    const preferredPath = String(payload.localPath || '').trim()
+
+    let localPath = preferredPath
+    if (!localPath || !fs.existsSync(localPath)) {
+      if (!fileUrl) {
+        throw new Error('No local PDF is available for this job')
+      }
+      localPath = await downloadPdfForPrint(fileUrl, documentName, {
+        jobId,
+        customerName: payload.customerName,
+        customerEmail: payload.customerEmail,
+        createdAt: payload.createdAt,
+      })
+    }
+
+    const error = await shell.openPath(localPath)
+    if (error) {
+      throw new Error(error)
+    }
+    return { ok: true, localPath }
+  })
 
   ipcMain.handle('window:minimize', (event) => {
     getWindow(event)?.minimize()
@@ -219,7 +351,7 @@ app.whenReady().then(() => {
     const trackId = String(payload.trackId || `track-${Date.now()}`)
     const documentName = String(payload.documentName || `Printstack-${Date.now()}`)
     const copies = Math.max(1, Math.min(50, Number(payload.copies) || 1))
-    let tempFile = ''
+    let savedFile = ''
 
     try {
       sendJobStatus(event.sender, {
@@ -228,7 +360,12 @@ app.whenReady().then(() => {
         rawStatus: 'Downloading PDF',
       })
 
-      tempFile = await downloadPdfToTemp(fileUrl, documentName)
+      savedFile = await downloadPdfForPrint(fileUrl, documentName, {
+        jobId: trackId,
+        customerName: payload.customerName,
+        customerEmail: payload.customerEmail,
+        createdAt: payload.createdAt,
+      })
 
       sendJobStatus(event.sender, {
         trackId,
@@ -237,7 +374,7 @@ app.whenReady().then(() => {
       })
 
       await printPdfFile({
-        filePath: tempFile,
+        filePath: savedFile,
         printerName: String(payload.printerName || deviceName),
         deviceName,
         copies,
@@ -256,7 +393,7 @@ app.whenReady().then(() => {
         documentName,
       })
 
-      return { ok: true, trackId, status: 'printing' }
+      return { ok: true, trackId, status: 'printing', savedPath: savedFile, localPath: savedFile }
     } catch (error) {
       sendJobStatus(event.sender, {
         trackId,
@@ -264,17 +401,6 @@ app.whenReady().then(() => {
         rawStatus: error.message,
       })
       throw error
-    } finally {
-      if (tempFile) {
-        // Keep file briefly so the spooler can read it, then clean up.
-        setTimeout(() => {
-          try {
-            fs.unlinkSync(tempFile)
-          } catch {
-            // Ignore cleanup errors.
-          }
-        }, 60_000)
-      }
     }
   })
 
@@ -336,14 +462,63 @@ function loadUrl(win, url) {
   })
 }
 
-function downloadPdfToTemp(fileUrl, documentName) {
-  const tempDir = path.join(app.getPath('temp'), 'printstack-jobs')
-  fs.mkdirSync(tempDir, { recursive: true })
+function safeFolderSegment(value, fallback = 'Unknown') {
+  const cleaned = String(value || '')
+    .replace(/[<>:"/\\|?*\u0000-\u001f]+/g, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .replace(/[. ]+$/g, '')
+    .slice(0, 80)
+  return cleaned || fallback
+}
+
+function formatJobDateFolder(value) {
+  const date = value ? new Date(value) : new Date()
+  const resolved = Number.isNaN(date.getTime()) ? new Date() : date
+  const year = resolved.getFullYear()
+  const month = String(resolved.getMonth() + 1).padStart(2, '0')
+  const day = String(resolved.getDate()).padStart(2, '0')
+  return `${year}-${month}-${day}`
+}
+
+function resolveDownloadFolder({ customerName = '', customerEmail = '', createdAt = '' } = {}) {
+  const dateFolder = formatJobDateFolder(createdAt)
+  const customerFolder = safeFolderSegment(
+    customerName || customerEmail,
+    'Unknown customer',
+  )
+  const folder = path.join(getPrintJobsFolder(), dateFolder, customerFolder)
+  fs.mkdirSync(folder, { recursive: true })
+  return folder
+}
+
+function downloadPdfForPrint(
+  fileUrl,
+  documentName,
+  { jobId = '', customerName = '', customerEmail = '', createdAt = '' } = {},
+) {
+  const folder = resolveDownloadFolder({ customerName, customerEmail, createdAt })
+
+  const safeJobId = String(jobId || '')
+    .replace(/[^\w.\-]+/g, '_')
+    .slice(0, 80)
   const safeName = String(documentName || 'document.pdf')
     .replace(/[^\w.\- ]+/g, '_')
     .replace(/\s+/g, '_')
   const fileName = safeName.toLowerCase().endsWith('.pdf') ? safeName : `${safeName}.pdf`
-  const dest = path.join(tempDir, `${Date.now()}_${fileName}`)
+  const dest = safeJobId
+    ? path.join(folder, `${safeJobId}.pdf`)
+    : path.join(folder, `${Date.now()}_${fileName}`)
+
+  if (fs.existsSync(dest)) {
+    try {
+      if (fs.statSync(dest).size > 0) {
+        return Promise.resolve(dest)
+      }
+    } catch {
+      // Re-download below.
+    }
+  }
 
   return new Promise((resolve, reject) => {
     const timeout = setTimeout(() => reject(new Error('PDF download timed out')), 45000)

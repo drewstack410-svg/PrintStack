@@ -39,7 +39,7 @@ class PartnerMapMarkers {
           zIndexInt: partner.id == selectedId ? 2 : 1,
           infoWindow: InfoWindow(
             title: partner.companyName.isEmpty
-                ? 'Partner'
+                ? 'Shop'
                 : partner.companyName,
             snippet: loc.label,
           ),

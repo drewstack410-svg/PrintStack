@@ -111,7 +111,7 @@ class _HistoryTile extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  job.documentName,
+                  'Order #${job.orderNumber}',
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                   style: const TextStyle(
@@ -123,7 +123,8 @@ class _HistoryTile extends StatelessWidget {
                 Text(
                   [
                     if (job.partnerName.isNotEmpty) job.partnerName,
-                    if (job.paperSizeName.isNotEmpty) job.paperSizeName,
+                    '${job.documentCount} doc${job.documentCount == 1 ? '' : 's'}',
+                    if (job.documentName.isNotEmpty) job.documentName,
                     '×${job.copies}',
                     _modeLabel,
                   ].join(' · '),

@@ -95,7 +95,7 @@ class _HomePageState extends State<HomePage> {
               _Greeting(greeting: greeting),
               const SizedBox(height: 6),
               const Text(
-                'Ready to print when partners are online.',
+                'Ready to print when shops are online.',
                 style: TextStyle(color: AppColors.muted, fontSize: 14),
               ),
               const SizedBox(height: 20),
@@ -111,7 +111,7 @@ class _HomePageState extends State<HomePage> {
                   const SizedBox(width: 12),
                   Expanded(
                     child: _StatCard(
-                      label: 'Partners',
+                      label: 'Shops',
                       value: '${partners.length}',
                       accent: AppColors.purpleDark,
                     ),
@@ -141,9 +141,9 @@ class _HomePageState extends State<HomePage> {
               if (online.isEmpty)
                 const EmptyState(
                   icon: Icons.storefront_outlined,
-                  title: 'No partners online',
+                  title: 'No shops online',
                   message:
-                      'You can still queue jobs — printing starts when a partner comes online.',
+                      'You can still queue jobs — printing starts when a shop comes online.',
                 )
               else
                 ...online.take(5).map(
@@ -234,7 +234,7 @@ class _OnlinePartnerRow extends StatelessWidget {
           Expanded(
             child: Text(
               partner.companyName.isEmpty
-                  ? 'Untitled partner'
+                  ? 'Untitled shop'
                   : partner.companyName,
               style: const TextStyle(
                 fontWeight: FontWeight.w700,

@@ -4,21 +4,17 @@ import { getDesktopApi } from '../../api'
 import { useAuth } from '../../auth/AuthProvider'
 import { usePartnerLocation } from '../../hooks/usePartnerLocation'
 import DashboardPage from '../../pages/DashboardPage'
+import LocationPage from '../../pages/LocationPage'
 import PartnersPage from '../../pages/PartnersPage'
 import PrintingPage from '../../pages/PrintingPage'
 import SettingsPage from '../../pages/SettingsPage'
 import StaffsPage from '../../pages/StaffsPage'
+import TemplatesPage from '../../pages/TemplatesPage'
 import AppHeader from './AppHeader'
 import Sidebar, { ADMIN_NAV_ITEMS, SUPERADMIN_NAV_ITEMS } from './Sidebar'
 import { DRAWER_WIDTH, TITLE_BAR_HEIGHT } from './constants'
 
-const PAGE_TITLES = {
-  dashboard: 'Dashboard',
-  partners: 'Partners',
-  staffs: 'Staffs',
-  printing: 'Printing',
-  settings: 'Settings',
-}
+const FULL_BLEED_PAGES = new Set(['location'])
 
 export default function AppShell() {
   const { user, profile, isSuperAdmin, isAdmin } = useAuth()
@@ -37,6 +33,7 @@ export default function AppShell() {
     top: desktopOffset,
     height: `calc(100% - ${desktopOffset}px)`,
   }
+  const fullBleed = FULL_BLEED_PAGES.has(page)
 
   useEffect(() => {
     if (!navItems.some((item) => item.id === page)) {
@@ -56,7 +53,6 @@ export default function AppShell() {
       <AppHeader
         desktopOffset={desktopOffset}
         onMenuClick={() => setMobileOpen((open) => !open)}
-        title={PAGE_TITLES[page]}
       />
 
       <Box component="nav" sx={{ width: { sm: DRAWER_WIDTH }, flexShrink: { sm: 0 } }}>
@@ -91,9 +87,10 @@ export default function AppShell() {
           minHeight: 0,
           display: 'flex',
           flexDirection: 'column',
-          p: page === 'settings' ? 0 : 2,
-          overflow: page === 'settings' ? 'hidden' : 'auto',
-          width: { sm: `calc(100% - ${DRAWER_WIDTH}px)` },
+          p: fullBleed ? 0 : { xs: 1.25, sm: 2 },
+          overflow: fullBleed ? 'hidden' : 'auto',
+          width: { xs: '100%', sm: `calc(100% - ${DRAWER_WIDTH}px)` },
+          minWidth: 0,
         }}
       >
         <Toolbar variant="dense" />
@@ -101,7 +98,9 @@ export default function AppShell() {
         {page === 'partners' && isSuperAdmin ? <PartnersPage /> : null}
         {page === 'staffs' && !isSuperAdmin ? <StaffsPage /> : null}
         {page === 'printing' && !isSuperAdmin ? <PrintingPage /> : null}
-        {page === 'settings' ? <SettingsPage trackedLocation={trackedLocation} /> : null}
+        {page === 'templates' ? <TemplatesPage /> : null}
+        {page === 'location' ? <LocationPage trackedLocation={trackedLocation} /> : null}
+        {page === 'settings' ? <SettingsPage /> : null}
       </Box>
     </Box>
   )

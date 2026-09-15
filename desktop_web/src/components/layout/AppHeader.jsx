@@ -1,10 +1,10 @@
 import MenuIcon from '@mui/icons-material/Menu'
-import { AppBar, IconButton, Toolbar, Typography } from '@mui/material'
+import { AppBar, Box, IconButton, Toolbar } from '@mui/material'
 import { brand } from '../../theme'
 import AccountMenu from './AccountMenu'
 import { DRAWER_WIDTH } from './constants'
 
-export default function AppHeader({ desktopOffset, onMenuClick, title = 'Dashboard' }) {
+export default function AppHeader({ desktopOffset, onMenuClick }) {
   return (
     <AppBar
       position="fixed"
@@ -18,18 +18,16 @@ export default function AppHeader({ desktopOffset, onMenuClick, title = 'Dashboa
         boxShadow: 'none',
       }}
     >
-      <Toolbar variant="dense">
+      <Toolbar variant="dense" sx={{ justifyContent: 'flex-end' }}>
         <IconButton
           color="inherit"
           edge="start"
           onClick={onMenuClick}
-          sx={{ mr: 2, display: { sm: 'none' }, WebkitAppRegion: 'no-drag' }}
+          sx={{ mr: 'auto', display: { sm: 'none' }, WebkitAppRegion: 'no-drag' }}
         >
           <MenuIcon />
         </IconButton>
-        <Typography variant="h6" noWrap sx={{ flexGrow: 1, color: '#ffffff' }}>
-          {title}
-        </Typography>
+        <Box sx={{ display: { xs: 'none', sm: 'block' }, flexGrow: 1 }} />
         <AccountMenu />
       </Toolbar>
     </AppBar>

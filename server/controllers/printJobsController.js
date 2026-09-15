@@ -8,17 +8,31 @@ function jobsRef(partnerId) {
   return db.collection('partners').doc(partnerId).collection('printJobs')
 }
 
-function mapJob(doc) {
-  const data = doc.data() || {}
-  const pages = Number(data.pages) || 1
-  let bwPages = Math.max(0, Number(data.bwPages) || 0)
-  let colorPages = Math.max(0, Number(data.colorPages) || 0)
+function randomOrderNumber() {
+  return String(Math.floor(10000000 + Math.random() * 90000000))
+}
+
+async function allocateOrderNumber(partnerId) {
+  for (let attempt = 0; attempt < 12; attempt += 1) {
+    const orderNumber = randomOrderNumber()
+    const existing = await jobsRef(partnerId).where('orderNumber', '==', orderNumber).limit(1).get()
+    if (existing.empty) {
+      return orderNumber
+    }
+  }
+  // Extremely unlikely fallback — still 8 digits from timestamp tail.
+  return String(Date.now()).slice(-8)
+}
+
+function normalizeDocument(raw = {}, index = 0) {
+  const pages = Math.max(1, Math.min(500, Number(raw.pages) || 1))
+  let bwPages = Math.max(0, Number(raw.bwPages) || 0)
+  let colorPages = Math.max(0, Number(raw.colorPages) || 0)
   if (bwPages + colorPages <= 0) {
-    if (data.colorMode === 'color') {
+    if (raw.colorMode === 'color') {
       colorPages = pages
       bwPages = 0
-    } else if (data.colorMode === 'mixed') {
-      // Unknown split on older mixed jobs — show pages only.
+    } else if (raw.colorMode === 'mixed') {
       bwPages = 0
       colorPages = 0
     } else {
@@ -28,8 +42,8 @@ function mapJob(doc) {
   }
 
   const colorMode =
-    data.colorMode === 'color' || data.colorMode === 'mixed'
-      ? data.colorMode
+    raw.colorMode === 'color' || raw.colorMode === 'mixed'
+      ? raw.colorMode
       : colorPages > 0 && bwPages > 0
         ? 'mixed'
         : colorPages > 0
@@ -37,32 +51,222 @@ function mapJob(doc) {
           : 'bw'
 
   return {
+    id: String(raw.id || `doc-${index + 1}`),
+    documentName: String(raw.documentName || '').trim(),
+    fileUrl: String(raw.fileUrl || '').trim(),
+    filePath: String(raw.filePath || '').trim(),
+    paperSizeId: String(raw.paperSizeId || '').trim(),
+    paperSizeName: String(raw.paperSizeName || '').trim(),
+    paperWidth: Number(raw.paperWidth) || 0,
+    paperHeight: Number(raw.paperHeight) || 0,
+    paperUnit: String(raw.paperUnit || 'in'),
+    copies: Math.max(1, Math.min(100, Number(raw.copies) || 1)),
+    pages,
+    bwPages,
+    colorPages,
+    colorMode,
+    priceBw: Number(raw.priceBw) || 0,
+    priceColor: Number(raw.priceColor) || 0,
+    pricePerPiece: Number(raw.pricePerPiece) || 0,
+    totalPrice: Number(raw.totalPrice) || 0,
+    localPath: String(raw.localPath || ''),
+    status: STATUSES.has(raw.status) ? raw.status : '',
+  }
+}
+
+function documentsFromData(data = {}) {
+  if (Array.isArray(data.documents) && data.documents.length > 0) {
+    return data.documents.map((item, index) => normalizeDocument(item, index))
+  }
+
+  // Legacy single-document jobs.
+  if (data.documentName || data.fileUrl) {
+    return [
+      normalizeDocument(
+        {
+          id: 'doc-1',
+          documentName: data.documentName,
+          fileUrl: data.fileUrl,
+          filePath: data.filePath,
+          paperSizeId: data.paperSizeId,
+          paperSizeName: data.paperSizeName,
+          paperWidth: data.paperWidth,
+          paperHeight: data.paperHeight,
+          paperUnit: data.paperUnit,
+          copies: data.copies,
+          pages: data.pages,
+          bwPages: data.bwPages,
+          colorPages: data.colorPages,
+          colorMode: data.colorMode,
+          priceBw: data.priceBw,
+          priceColor: data.priceColor,
+          pricePerPiece: data.pricePerPiece,
+          totalPrice: data.totalPrice,
+          localPath: data.localPath,
+        },
+        0,
+      ),
+    ]
+  }
+
+  return []
+}
+
+function aggregateFromDocuments(documents) {
+  const pages = documents.reduce((sum, doc) => sum + (Number(doc.pages) || 0), 0)
+  const bwPages = documents.reduce((sum, doc) => sum + (Number(doc.bwPages) || 0), 0)
+  const colorPages = documents.reduce((sum, doc) => sum + (Number(doc.colorPages) || 0), 0)
+  const copies = documents.reduce((sum, doc) => sum + (Number(doc.copies) || 0), 0)
+  const totalPrice = Number(
+    documents.reduce((sum, doc) => sum + (Number(doc.totalPrice) || 0), 0).toFixed(2),
+  )
+  const first = documents[0] || {}
+  const documentCount = documents.length
+  const documentName =
+    documentCount <= 1
+      ? first.documentName || ''
+      : `${first.documentName || 'Document'} +${documentCount - 1} more`
+
+  const colorMode =
+    colorPages > 0 && bwPages > 0 ? 'mixed' : colorPages > 0 ? 'color' : 'bw'
+
+  return {
+    documentName,
+    documentCount,
+    fileUrl: first.fileUrl || '',
+    filePath: first.filePath || '',
+    paperSizeId: first.paperSizeId || '',
+    paperSizeName: first.paperSizeName || '',
+    copies: copies || 1,
+    pages: pages || 1,
+    bwPages,
+    colorPages,
+    colorMode,
+    priceBw: Number(first.priceBw) || 0,
+    priceColor: Number(first.priceColor) || 0,
+    pricePerPiece: Number(first.pricePerPiece) || 0,
+    totalPrice,
+    localPath: first.localPath || '',
+  }
+}
+
+function mapJob(doc) {
+  const data = doc.data() || {}
+  const documents = documentsFromData(data)
+  const aggregates = aggregateFromDocuments(documents)
+
+  return {
     id: doc.id,
-    documentName: data.documentName || '',
+    orderNumber: String(data.orderNumber || doc.id).padStart(8, '0').slice(-8),
+    documentName: aggregates.documentName,
+    documentCount: aggregates.documentCount,
+    documents,
     printerName: data.printerName || '',
     deviceName: data.deviceName || '',
     status: data.status || 'queued',
     rawStatus: data.rawStatus || '',
     source: data.source || 'desktop',
-    fileUrl: data.fileUrl || '',
-    filePath: data.filePath || '',
-    paperSizeId: data.paperSizeId || '',
-    paperSizeName: data.paperSizeName || '',
-    copies: Number(data.copies) || 1,
-    pages,
-    bwPages,
-    colorPages,
-    colorMode,
-    pricePerPiece: Number(data.pricePerPiece) || 0,
-    priceBw: Number(data.priceBw) || 0,
-    priceColor: Number(data.priceColor) || 0,
-    totalPrice: Number(data.totalPrice) || 0,
+    fileUrl: aggregates.fileUrl,
+    filePath: aggregates.filePath,
+    paperSizeId: aggregates.paperSizeId,
+    paperSizeName: aggregates.paperSizeName,
+    copies: aggregates.copies,
+    pages: aggregates.pages,
+    bwPages: aggregates.bwPages,
+    colorPages: aggregates.colorPages,
+    colorMode: aggregates.colorMode,
+    pricePerPiece: aggregates.pricePerPiece,
+    priceBw: aggregates.priceBw,
+    priceColor: aggregates.priceColor,
+    totalPrice: aggregates.totalPrice,
+    localPath: aggregates.localPath,
     customerUid: data.customerUid || '',
     customerEmail: data.customerEmail || '',
     customerName: data.customerName || '',
     createdAt: data.createdAt?.toDate?.()?.toISOString?.() || null,
     updatedAt: data.updatedAt?.toDate?.()?.toISOString?.() || null,
   }
+}
+
+function buildPricedDocument(raw, paperSizes, index) {
+  const documentName = String(raw.documentName || '').trim()
+  const fileUrl = String(raw.fileUrl || '').trim()
+  const filePath = String(raw.filePath || '').trim()
+  const paperSizeId = String(raw.paperSizeId || '').trim()
+  const copies = Math.max(1, Math.min(100, Number(raw.copies) || 1))
+  const pages = Math.max(1, Math.min(500, Number(raw.pages) || 1))
+  const rawBw = Number(raw.bwPages)
+  const rawColor = Number(raw.colorPages)
+  const hasPageSplit = Number.isFinite(rawBw) || Number.isFinite(rawColor)
+  let bwPages = Number.isFinite(rawBw) ? Math.max(0, Math.min(500, rawBw)) : 0
+  let colorPages = Number.isFinite(rawColor) ? Math.max(0, Math.min(500, rawColor)) : 0
+  const requestedMode = String(raw.colorMode || '').toLowerCase()
+
+  if (!hasPageSplit) {
+    if (requestedMode === 'color') {
+      colorPages = pages
+      bwPages = 0
+    } else {
+      bwPages = pages
+      colorPages = 0
+    }
+  } else {
+    const counted = bwPages + colorPages
+    if (counted <= 0) {
+      bwPages = pages
+      colorPages = 0
+    } else if (counted !== pages) {
+      const scale = pages / counted
+      bwPages = Math.round(bwPages * scale)
+      colorPages = Math.max(0, pages - bwPages)
+    }
+  }
+
+  const colorMode =
+    colorPages > 0 && bwPages > 0 ? 'mixed' : colorPages > 0 ? 'color' : 'bw'
+
+  if (!documentName || !fileUrl || !paperSizeId) {
+    throw new Error('Each document needs a file and paper size')
+  }
+
+  const paperSize = paperSizes.find((item) => item.id === paperSizeId)
+  if (!paperSize) {
+    throw new Error(`Paper size not available for ${documentName}`)
+  }
+
+  const priceBw = Number(paperSize.priceBw ?? paperSize.pricePerPiece) || 0
+  const priceColor = Number(paperSize.priceColor) || 0
+  const pricePerPiece =
+    colorMode === 'color' ? priceColor : colorMode === 'mixed' ? 0 : priceBw
+  const totalPrice = Number(
+    ((bwPages * priceBw + colorPages * priceColor) * copies).toFixed(2),
+  )
+
+  return normalizeDocument(
+    {
+      id: `doc-${index + 1}`,
+      documentName,
+      fileUrl,
+      filePath,
+      paperSizeId: paperSize.id,
+      paperSizeName: paperSize.name,
+      paperWidth: paperSize.width,
+      paperHeight: paperSize.height,
+      paperUnit: paperSize.unit,
+      copies,
+      pages,
+      bwPages,
+      colorPages,
+      colorMode,
+      priceBw,
+      priceColor,
+      pricePerPiece,
+      totalPrice,
+      localPath: '',
+      status: 'queued',
+    },
+    index,
+  )
 }
 
 async function partnerIdFrom(req, res) {
@@ -107,16 +311,34 @@ async function createPrintJob(req, res) {
     return
   }
 
+  const orderNumber = await allocateOrderNumber(partnerId)
+  const documents = [
+    normalizeDocument(
+      {
+        id: 'doc-1',
+        documentName,
+        copies: 1,
+        pages: 1,
+        bwPages: 1,
+        colorPages: 0,
+        colorMode: 'bw',
+        status: 'sending',
+      },
+      0,
+    ),
+  ]
+  const aggregates = aggregateFromDocuments(documents)
+
   const ref = jobsRef(partnerId).doc()
   const job = {
-    documentName,
+    orderNumber,
+    ...aggregates,
+    documents,
     printerName,
     deviceName,
     status: 'sending',
     rawStatus: '',
     source: 'desktop',
-    fileUrl: '',
-    filePath: '',
     createdAt: FieldValue.serverTimestamp(),
     updatedAt: FieldValue.serverTimestamp(),
   }
@@ -138,92 +360,53 @@ async function createCustomerPrintJob(req, res) {
     return
   }
 
-  const documentName = String(req.body.documentName || '').trim()
-  const fileUrl = String(req.body.fileUrl || '').trim()
-  const filePath = String(req.body.filePath || '').trim()
-  const paperSizeId = String(req.body.paperSizeId || '').trim()
-  const copies = Math.max(1, Math.min(100, Number(req.body.copies) || 1))
-  const pages = Math.max(1, Math.min(500, Number(req.body.pages) || 1))
-  const rawBw = Number(req.body.bwPages)
-  const rawColor = Number(req.body.colorPages)
-  const hasPageSplit = Number.isFinite(rawBw) || Number.isFinite(rawColor)
-  let bwPages = Number.isFinite(rawBw) ? Math.max(0, Math.min(500, rawBw)) : 0
-  let colorPages = Number.isFinite(rawColor) ? Math.max(0, Math.min(500, rawColor)) : 0
-  const requestedMode = String(req.body.colorMode || '').toLowerCase()
-
-  // Prefer explicit per-page counts; fall back to legacy single colorMode.
-  if (!hasPageSplit) {
-    if (requestedMode === 'color') {
-      colorPages = pages
-      bwPages = 0
-    } else {
-      bwPages = pages
-      colorPages = 0
-    }
-  } else {
-    const counted = bwPages + colorPages
-    if (counted <= 0) {
-      bwPages = pages
-      colorPages = 0
-    } else if (counted !== pages) {
-      // Keep the detected split but normalize to reported page total.
-      const scale = pages / counted
-      bwPages = Math.round(bwPages * scale)
-      colorPages = Math.max(0, pages - bwPages)
-    }
-  }
-
-  const colorMode =
-    colorPages > 0 && bwPages > 0 ? 'mixed' : colorPages > 0 ? 'color' : 'bw'
-
-  if (!documentName || !fileUrl || !paperSizeId) {
-    res.status(400).json({ error: 'Document, file, and paper size are required' })
-    return
-  }
-
   const paperSizes = normalizePaperSizes(partnerSnap.data()?.paperSizes)
-  const paperSize = paperSizes.find((item) => item.id === paperSizeId)
-  if (!paperSize) {
-    res.status(400).json({ error: 'Selected paper size is not available' })
+  const rawDocuments = Array.isArray(req.body.documents)
+    ? req.body.documents
+    : [
+        {
+          documentName: req.body.documentName,
+          fileUrl: req.body.fileUrl,
+          filePath: req.body.filePath,
+          paperSizeId: req.body.paperSizeId,
+          copies: req.body.copies,
+          pages: req.body.pages,
+          bwPages: req.body.bwPages,
+          colorPages: req.body.colorPages,
+          colorMode: req.body.colorMode,
+        },
+      ]
+
+  if (rawDocuments.length === 0) {
+    res.status(400).json({ error: 'Add at least one document to the order' })
     return
   }
 
-  const priceBw = Number(paperSize.priceBw ?? paperSize.pricePerPiece) || 0
-  const priceColor = Number(paperSize.priceColor) || 0
-  const pricePerPiece =
-    colorMode === 'color' ? priceColor : colorMode === 'mixed' ? 0 : priceBw
-  const totalPrice = Number(
-    ((bwPages * priceBw + colorPages * priceColor) * copies).toFixed(2),
-  )
+  let documents
+  try {
+    documents = rawDocuments.map((item, index) => buildPricedDocument(item, paperSizes, index))
+  } catch (error) {
+    res.status(400).json({ error: error.message || 'Invalid document in order' })
+    return
+  }
+
+  const aggregates = aggregateFromDocuments(documents)
   const customerName = [req.profile?.firstName, req.profile?.lastName]
     .filter(Boolean)
     .join(' ')
     .trim()
+  const orderNumber = await allocateOrderNumber(partnerId)
 
   const ref = jobsRef(partnerId).doc()
   const job = {
-    documentName,
+    orderNumber,
+    ...aggregates,
+    documents,
     printerName: '',
     deviceName: '',
     status: 'queued',
     rawStatus: 'Waiting for partner desktop',
     source: 'mobile',
-    fileUrl,
-    filePath,
-    paperSizeId: paperSize.id,
-    paperSizeName: paperSize.name,
-    paperWidth: paperSize.width,
-    paperHeight: paperSize.height,
-    paperUnit: paperSize.unit,
-    copies,
-    pages,
-    bwPages,
-    colorPages,
-    colorMode,
-    priceBw,
-    priceColor,
-    pricePerPiece,
-    totalPrice,
     customerUid: req.user.uid,
     customerEmail: req.profile?.email || req.user.email || '',
     customerName,
@@ -255,6 +438,10 @@ async function updatePrintJob(req, res) {
     return
   }
 
+  const existing = snap.data() || {}
+  const documents = documentsFromData(existing)
+  const documentId = String(req.body.documentId || '').trim()
+
   const updates = {
     status,
     rawStatus: String(req.body.rawStatus || ''),
@@ -266,6 +453,41 @@ async function updatePrintJob(req, res) {
   }
   if (req.body.deviceName) {
     updates.deviceName = String(req.body.deviceName)
+  }
+
+  if (documentId && documents.length > 0) {
+    const nextDocs = documents.map((doc) => {
+      if (doc.id !== documentId) {
+        return doc
+      }
+      return {
+        ...doc,
+        status,
+        localPath:
+          req.body.localPath !== undefined
+            ? String(req.body.localPath || '').trim()
+            : doc.localPath,
+      }
+    })
+    updates.documents = nextDocs
+    const aggregates = aggregateFromDocuments(nextDocs)
+    updates.documentName = aggregates.documentName
+    updates.documentCount = aggregates.documentCount
+    updates.fileUrl = aggregates.fileUrl
+    updates.filePath = aggregates.filePath
+    updates.localPath = aggregates.localPath
+    updates.totalPrice = aggregates.totalPrice
+  } else if (req.body.localPath !== undefined) {
+    updates.localPath = String(req.body.localPath || '').trim()
+    if (documents.length === 1) {
+      updates.documents = [
+        {
+          ...documents[0],
+          localPath: updates.localPath,
+          status,
+        },
+      ]
+    }
   }
 
   await ref.update(updates)

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../layout/app_shell.dart';
 import '../layout/nav_destinations.dart';
+import '../location/location_page.dart';
 import '../pages/account_page.dart';
 import '../pages/history_page.dart';
 import '../pages/home_page.dart';
@@ -22,6 +23,7 @@ class _MainShellState extends State<MainShell> {
         AppNavId.home => 'Home',
         AppNavId.print => 'Print',
         AppNavId.history => 'History',
+        AppNavId.location => 'Location',
         AppNavId.account => 'Account',
       };
 
@@ -38,6 +40,7 @@ class _MainShellState extends State<MainShell> {
           ),
         AppNavId.print => const PrintPage(),
         AppNavId.history => const HistoryPage(),
+        AppNavId.location => const LocationPage(),
         AppNavId.account => const AccountPage(),
       },
     );

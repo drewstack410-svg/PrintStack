@@ -1,14 +1,13 @@
 import 'dart:io';
+import 'dart:math' as math;
 
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
+import 'package:pdfrx/pdfrx.dart';
 
 import '../api/api_client.dart';
 import '../components/buttons/gradient_button.dart';
 import '../components/common/message_banner.dart';
-import '../components/common/price_row.dart';
-import '../components/common/section_title.dart';
-import '../components/common/status_chip.dart';
 import '../models/partner.dart';
 import '../theme.dart';
 import '../utils/pdf_pages.dart';
@@ -22,13 +21,46 @@ class PartnerOrderPage extends StatefulWidget {
   State<PartnerOrderPage> createState() => _PartnerOrderPageState();
 }
 
+enum _PageInkFilter { all, bw, color }
+
+class _OrderDraftDoc {
+  const _OrderDraftDoc({
+    required this.path,
+    required this.fileName,
+    required this.paperSize,
+    required this.copies,
+    required this.bwPages,
+    required this.colorPages,
+    required this.pageIsColor,
+  });
+
+  final String path;
+  final String fileName;
+  final PaperSize paperSize;
+  final int copies;
+  final int bwPages;
+  final int colorPages;
+  final List<bool> pageIsColor;
+
+  int get totalPages => bwPages + colorPages;
+
+  double get lineTotal {
+    final bw = bwPages * copies * paperSize.priceBw;
+    final color = colorPages * copies * paperSize.priceColor;
+    return bw + color;
+  }
+}
+
 class _PartnerOrderPageState extends State<PartnerOrderPage> {
+  final List<_OrderDraftDoc> _orderDocs = [];
   PlatformFile? _picked;
   PaperSize? _selectedSize;
   int _copies = 1;
   int _bwPages = 0;
   int _colorPages = 0;
-  bool _colorDetected = false;
+  List<bool> _pageIsColor = const [];
+  _PageInkFilter _pageFilter = _PageInkFilter.all;
+  bool _layoutFromPdf = false;
   bool _readingPdf = false;
   bool _submitting = false;
   String? _error;
@@ -43,7 +75,27 @@ class _PartnerOrderPageState extends State<PartnerOrderPage> {
 
   double get _bwSubtotal => _bwPages * _copies * _bwUnit;
   double get _colorSubtotal => _colorPages * _copies * _colorUnit;
-  double get _total => _bwSubtotal + _colorSubtotal;
+  double get _currentTotal => _bwSubtotal + _colorSubtotal;
+
+  double get _orderTotal =>
+      _orderDocs.fold<double>(0, (sum, doc) => sum + doc.lineTotal) +
+      (_canAddCurrent ? _currentTotal : 0);
+
+  bool get _canAddCurrent =>
+      !_submitting &&
+      !_readingPdf &&
+      _picked != null &&
+      (_picked!.path ?? '').isNotEmpty &&
+      _layoutFromPdf &&
+      _selectedSize != null &&
+      _totalPages > 0 &&
+      _sizes.isNotEmpty;
+
+  bool get _canPrint =>
+      !_submitting &&
+      !_readingPdf &&
+      _sizes.isNotEmpty &&
+      (_orderDocs.isNotEmpty || _canAddCurrent);
 
   String get _pageBreakdown {
     if (_colorPages > 0 && _bwPages > 0) {
@@ -58,28 +110,59 @@ class _PartnerOrderPageState extends State<PartnerOrderPage> {
     return 'No pages detected';
   }
 
-  String get _colorModeLabel {
-    if (_colorPages > 0 && _bwPages > 0) {
-      return 'Mixed';
-    }
-    if (_colorPages > 0) {
-      return 'Color';
-    }
-    return 'Black & white';
-  }
-
-  @override
-  void initState() {
-    super.initState();
-    if (_sizes.isNotEmpty) {
-      _selectedSize = _sizes.first;
-    }
-  }
-
   void _resetDetection() {
     _bwPages = 0;
     _colorPages = 0;
-    _colorDetected = false;
+    _pageIsColor = const [];
+    _pageFilter = _PageInkFilter.all;
+    _layoutFromPdf = false;
+    _selectedSize = null;
+  }
+
+  void _togglePageFilter(_PageInkFilter filter) {
+    setState(() {
+      _pageFilter = _pageFilter == filter ? _PageInkFilter.all : filter;
+    });
+  }
+
+  double _toMm(PaperSize size, double value) {
+    return size.unit == 'in' ? value * 25.4 : value;
+  }
+
+  PaperSize? _matchPaperSize(PdfDocumentInfo info) {
+    if (_sizes.isEmpty) {
+      return null;
+    }
+    if (info.pageWidthPt <= 0 || info.pageHeightPt <= 0) {
+      return null;
+    }
+
+    final pdfW = math.min(info.pageWidthMm, info.pageHeightMm);
+    final pdfH = math.max(info.pageWidthMm, info.pageHeightMm);
+
+    PaperSize? best;
+    var bestScore = double.infinity;
+
+    for (final size in _sizes) {
+      final sizeWMm = _toMm(size, size.width);
+      final sizeHMm = _toMm(size, size.height);
+      final w = math.min(sizeWMm, sizeHMm);
+      final h = math.max(sizeWMm, sizeHMm);
+      if (w <= 0 || h <= 0) {
+        continue;
+      }
+
+      final score = (pdfW - w).abs() + (pdfH - h).abs();
+      if (score < bestScore) {
+        bestScore = score;
+        best = size;
+      }
+    }
+
+    if (best == null || bestScore > 12) {
+      return null;
+    }
+    return best;
   }
 
   Future<void> _pickPdf() async {
@@ -117,38 +200,68 @@ class _PartnerOrderPageState extends State<PartnerOrderPage> {
     setState(() {
       _bwPages = info.bwPages;
       _colorPages = info.colorPages;
-      _colorDetected = true;
+      _pageIsColor = info.pageIsColor;
+      _pageFilter = _PageInkFilter.all;
+      final matched = _matchPaperSize(info);
+      _selectedSize = matched;
+      _layoutFromPdf = matched != null;
+      if (matched == null && _sizes.isNotEmpty) {
+        _error =
+            'Could not match PDF page size to this shop’s layouts. Ask the shop to add this paper size.';
+      }
       _readingPdf = false;
     });
   }
 
-  void _forceAllBw() {
+  void _clearDocument() {
     setState(() {
-      _bwPages = _totalPages;
-      _colorPages = 0;
+      _picked = null;
+      _copies = 1;
+      _resetDetection();
+      _error = null;
     });
   }
 
-  void _forceAllColor() {
+  bool _addCurrentToOrder() {
+    final size = _selectedSize;
+    final picked = _picked;
+    final path = picked?.path;
+    if (!_canAddCurrent || size == null || picked == null || path == null) {
+      return false;
+    }
+
+    _orderDocs.add(
+      _OrderDraftDoc(
+        path: path,
+        fileName: picked.name,
+        paperSize: size,
+        copies: _copies,
+        bwPages: _bwPages,
+        colorPages: _colorPages,
+        pageIsColor: List<bool>.from(_pageIsColor),
+      ),
+    );
+    _picked = null;
+    _copies = 1;
+    _resetDetection();
+    return true;
+  }
+
+  void _removeOrderDoc(int index) {
     setState(() {
-      _colorPages = _totalPages;
-      _bwPages = 0;
+      if (index >= 0 && index < _orderDocs.length) {
+        _orderDocs.removeAt(index);
+      }
     });
   }
 
   Future<void> _submit() async {
-    final size = _selectedSize;
-    final picked = _picked;
-    if (picked == null || (picked.path ?? '').isEmpty) {
-      setState(() => _error = 'Choose a PDF document first.');
-      return;
+    if (_canAddCurrent) {
+      _addCurrentToOrder();
     }
-    if (size == null) {
-      setState(() => _error = 'Choose a paper layout first.');
-      return;
-    }
-    if (_totalPages < 1) {
-      setState(() => _error = 'No pages detected in that PDF.');
+
+    if (_orderDocs.isEmpty) {
+      setState(() => _error = 'Add at least one document to the order.');
       return;
     }
 
@@ -159,32 +272,48 @@ class _PartnerOrderPageState extends State<PartnerOrderPage> {
     });
 
     try {
-      final upload = await ApiClient.instance.uploadPrintPdf(
-        partnerId: widget.partner.id,
-        file: File(picked.path!),
-        fileName: picked.name,
-      );
+      final payloads = <Map<String, dynamic>>[];
+      for (final doc in _orderDocs) {
+        final upload = await ApiClient.instance.uploadPrintPdf(
+          partnerId: widget.partner.id,
+          file: File(doc.path),
+          fileName: doc.fileName,
+        );
+        payloads.add({
+          'documentName': doc.fileName,
+          'fileUrl': upload.fileUrl,
+          'filePath': upload.filePath,
+          'paperSizeId': doc.paperSize.id,
+          'copies': doc.copies,
+          'pages': doc.totalPages,
+          'bwPages': doc.bwPages,
+          'colorPages': doc.colorPages,
+        });
+      }
 
-      await ApiClient.instance.createCustomerPrintJob(
+      final result = await ApiClient.instance.createCustomerPrintOrder(
         partnerId: widget.partner.id,
-        documentName: picked.name,
-        fileUrl: upload.fileUrl,
-        filePath: upload.filePath,
-        paperSizeId: size.id,
-        copies: _copies,
-        pages: _totalPages,
-        bwPages: _bwPages,
-        colorPages: _colorPages,
+        documents: payloads,
       );
 
       if (!mounted) {
         return;
       }
 
+      final orderNumber =
+          (result['printJob'] is Map
+                  ? (result['printJob'] as Map)['orderNumber']
+                  : result['orderNumber'])
+              ?.toString() ??
+          '';
+
       setState(() {
-        _success =
-            'Uploaded $_pageBreakdown. Waiting for partner desktop.';
+        _success = orderNumber.isEmpty
+            ? 'Order submitted with ${_orderDocs.length} document${_orderDocs.length == 1 ? '' : 's'}.'
+            : 'Order #$orderNumber submitted · ${_orderDocs.length} document${_orderDocs.length == 1 ? '' : 's'}.';
+        _orderDocs.clear();
         _picked = null;
+        _copies = 1;
         _resetDetection();
       });
     } on ApiException catch (error) {
@@ -206,342 +335,742 @@ class _PartnerOrderPageState extends State<PartnerOrderPage> {
   Widget build(BuildContext context) {
     final partner = widget.partner;
     final online = partner.location?.online == true;
+    final path = _picked?.path;
+    final showPreview = path != null && path.isNotEmpty;
 
     return Scaffold(
+      backgroundColor: AppColors.mist,
       appBar: AppBar(
-        title: Text(partner.companyName.isEmpty ? 'Partner' : partner.companyName),
+        title: Text(partner.companyName.isEmpty ? 'Shop' : partner.companyName),
+        actions: [
+          Padding(
+            padding: const EdgeInsets.only(right: 16),
+            child: Center(child: _StatusGlowLight(online: online)),
+          ),
+        ],
       ),
-      body: ListView(
-        padding: const EdgeInsets.fromLTRB(20, 20, 20, 32),
+      body: Column(
         children: [
-          StatusChip(
-            label: online ? 'Partner online' : 'Partner offline',
-            active: online,
-          ),
-          const SizedBox(height: 8),
-          Text(
-            online
-                ? 'Upload a PDF and it will print on their desktop app.'
-                : 'You can still upload. Printing starts when their desktop comes online.',
-            style: const TextStyle(color: AppColors.muted, height: 1.4),
-          ),
-          const SizedBox(height: 24),
-          const SectionTitle('1. Document'),
-          const SizedBox(height: 10),
-          Material(
-            color: Colors.white,
-            borderRadius: BorderRadius.circular(16),
-            child: InkWell(
-              borderRadius: BorderRadius.circular(16),
-              onTap: _submitting || _readingPdf ? null : _pickPdf,
-              child: Padding(
-                padding: const EdgeInsets.all(16),
-                child: Row(
-                  children: [
-                    const Icon(
-                      Icons.picture_as_pdf_outlined,
-                      color: AppColors.purple,
-                    ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            _picked?.name ?? 'Choose PDF',
-                            style: TextStyle(
-                              fontWeight: FontWeight.w700,
-                              color: _picked == null
-                                  ? AppColors.muted
-                                  : AppColors.navy,
-                            ),
+          Expanded(
+            child: Stack(
+              children: [
+                Positioned.fill(
+                  child: showPreview
+                      ? _DocumentPreview(
+                          path: path,
+                          reading: _readingPdf,
+                          bwPages: _bwPages,
+                          colorPages: _colorPages,
+                          pageIsColor: _pageIsColor,
+                          pageFilter: _pageFilter,
+                          sizeName: _selectedSize?.name,
+                          sizeLabel: _selectedSize?.sizeLabel,
+                          sizeMatched: _layoutFromPdf,
+                          onFilterBw: () => _togglePageFilter(_PageInkFilter.bw),
+                          onFilterColor: () =>
+                              _togglePageFilter(_PageInkFilter.color),
+                          onChange:
+                              _submitting || _readingPdf ? null : _pickPdf,
+                          onClear:
+                              _submitting || _readingPdf ? null : _clearDocument,
+                        )
+                      : Padding(
+                          padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
+                          child: _BigUploadButton(
+                            busy: _readingPdf || _submitting,
+                            label: _orderDocs.isEmpty
+                                ? 'Upload document'
+                                : 'Add another document',
+                            onTap:
+                                _submitting || _readingPdf ? null : _pickPdf,
                           ),
-                          if (_picked != null) ...[
-                            const SizedBox(height: 4),
-                            Text(
-                              _readingPdf
-                                  ? 'Counting B&W and color pages…'
-                                  : _pageBreakdown,
-                              style: const TextStyle(
-                                color: AppColors.muted,
-                                fontSize: 13,
-                              ),
-                            ),
-                          ],
-                        ],
-                      ),
-                    ),
-                    if (_readingPdf)
-                      const SizedBox(
-                        width: 18,
-                        height: 18,
-                        child: CircularProgressIndicator(strokeWidth: 2),
-                      )
-                    else
-                      const Icon(Icons.upload_file, color: AppColors.muted),
-                  ],
+                        ),
                 ),
-              ),
+                if (_error != null)
+                  Positioned(
+                    left: 20,
+                    right: 20,
+                    bottom: 12,
+                    child: MessageBanner(message: _error!, isError: true),
+                  ),
+                if (_success != null)
+                  Positioned(
+                    left: 20,
+                    right: 20,
+                    bottom: 12,
+                    child: MessageBanner(message: _success!),
+                  ),
+              ],
             ),
           ),
-          if (_picked != null && !_readingPdf) ...[
-            const SizedBox(height: 12),
-            Container(
-              width: double.infinity,
-              padding: const EdgeInsets.all(14),
-              decoration: BoxDecoration(
-                color: Colors.white,
-                borderRadius: BorderRadius.circular(16),
-              ),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
-                    children: [
-                      Icon(
-                        _colorPages > 0
-                            ? Icons.palette_outlined
-                            : Icons.filter_b_and_w,
-                        color: _colorPages > 0
-                            ? AppColors.purple
-                            : AppColors.navy,
+          Material(
+            elevation: 12,
+            color: Colors.white,
+            shadowColor: Colors.black38,
+            child: SafeArea(
+              top: false,
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    if (_orderDocs.isNotEmpty) ...[
+                      SizedBox(
+                        height: 40,
+                        child: ListView.separated(
+                          scrollDirection: Axis.horizontal,
+                          itemCount: _orderDocs.length,
+                          separatorBuilder: (_, _) => const SizedBox(width: 8),
+                          itemBuilder: (context, index) {
+                            final doc = _orderDocs[index];
+                            return InputChip(
+                              label: Text(
+                                doc.fileName,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                              onDeleted: _submitting
+                                  ? null
+                                  : () => _removeOrderDoc(index),
+                              deleteIconColor: AppColors.muted,
+                              backgroundColor: AppColors.mist,
+                            );
+                          },
+                        ),
                       ),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
+                      const SizedBox(height: 10),
+                    ],
+                    if (_picked != null) ...[
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 10,
+                          vertical: 4,
+                        ),
+                        decoration: BoxDecoration(
+                          color: AppColors.mist,
+                          borderRadius: BorderRadius.circular(14),
+                          border: Border.all(
+                            color: AppColors.purple.withValues(alpha: 0.12),
+                          ),
+                        ),
+                        child: Row(
                           children: [
-                            Text(
-                              _colorModeLabel,
-                              style: const TextStyle(
+                            const Text(
+                              'Copies',
+                              style: TextStyle(
                                 fontWeight: FontWeight.w800,
+                                fontSize: 14,
                                 color: AppColors.navy,
                               ),
                             ),
-                            const SizedBox(height: 2),
-                            Text(
-                              _colorDetected
-                                  ? 'Counted every page from the PDF'
-                                  : 'Could not fully analyze; priced as B&W',
-                              style: const TextStyle(
-                                color: AppColors.muted,
-                                fontSize: 12,
+                            const Spacer(),
+                            IconButton(
+                              visualDensity: VisualDensity.compact,
+                              onPressed: _submitting || _copies <= 1
+                                  ? null
+                                  : () => setState(() => _copies -= 1),
+                              icon: const Icon(Icons.remove_circle_outline),
+                            ),
+                            SizedBox(
+                              width: 36,
+                              child: Text(
+                                '$_copies',
+                                textAlign: TextAlign.center,
+                                style: const TextStyle(
+                                  fontSize: 18,
+                                  fontWeight: FontWeight.w800,
+                                  color: AppColors.navy,
+                                ),
                               ),
+                            ),
+                            IconButton(
+                              visualDensity: VisualDensity.compact,
+                              onPressed: _submitting || _copies >= 50
+                                  ? null
+                                  : () => setState(() => _copies += 1),
+                              icon: const Icon(Icons.add_circle_outline),
                             ),
                           ],
                         ),
                       ),
+                      const SizedBox(height: 10),
                     ],
-                  ),
-                  const SizedBox(height: 12),
-                  Row(
-                    children: [
-                      Expanded(
-                        child: OutlinedButton(
-                          onPressed: _submitting ||
-                                  _totalPages < 1 ||
-                                  _bwPages == _totalPages
-                              ? null
-                              : _forceAllBw,
-                          child: const Text('All B&W'),
-                        ),
-                      ),
-                      const SizedBox(width: 10),
-                      Expanded(
-                        child: OutlinedButton(
-                          onPressed: _submitting ||
-                                  _totalPages < 1 ||
-                                  _colorPages == _totalPages
-                              ? null
-                              : _forceAllColor,
-                          child: const Text('All Color'),
-                        ),
-                      ),
-                    ],
-                  ),
-                ],
-              ),
-            ),
-          ],
-          const SizedBox(height: 24),
-          const SectionTitle('2. Layout'),
-          const SizedBox(height: 10),
-          if (_sizes.isEmpty)
-            Container(
-              padding: const EdgeInsets.all(16),
-              decoration: BoxDecoration(
-                color: Colors.white,
-                borderRadius: BorderRadius.circular(16),
-              ),
-              child: const Text(
-                'This partner has not set paper sizes yet.',
-                style: TextStyle(color: AppColors.muted),
-              ),
-            )
-          else
-            ..._sizes.map((item) {
-              final selected = _selectedSize?.id == item.id;
-              return Padding(
-                padding: const EdgeInsets.only(bottom: 10),
-                child: Material(
-                  color: Colors.white,
-                  borderRadius: BorderRadius.circular(16),
-                  child: InkWell(
-                    borderRadius: BorderRadius.circular(16),
-                    onTap: _submitting
-                        ? null
-                        : () => setState(() => _selectedSize = item),
-                    child: Container(
-                      padding: const EdgeInsets.all(14),
-                      decoration: BoxDecoration(
-                        borderRadius: BorderRadius.circular(16),
-                        border: Border.all(
-                          color: selected
-                              ? AppColors.purple
-                              : Colors.transparent,
-                          width: 1.6,
-                        ),
-                      ),
-                      child: Row(
-                        children: [
-                          Icon(
-                            selected
-                                ? Icons.radio_button_checked
-                                : Icons.radio_button_off,
-                            color: selected
-                                ? AppColors.purple
-                                : AppColors.muted,
+                    Row(
+                      children: [
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Text(
+                                _orderDocs.isEmpty
+                                    ? 'Estimated total'
+                                    : 'Order · ${_orderDocs.length + (_canAddCurrent ? 1 : 0)} doc${(_orderDocs.length + (_canAddCurrent ? 1 : 0)) == 1 ? '' : 's'}',
+                                style: const TextStyle(
+                                  color: AppColors.muted,
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                              const SizedBox(height: 2),
+                              Text(
+                                '₱${_orderTotal.toStringAsFixed(2)}',
+                                style: const TextStyle(
+                                  fontSize: 22,
+                                  fontWeight: FontWeight.w800,
+                                  color: AppColors.purple,
+                                ),
+                              ),
+                            ],
                           ),
-                          const SizedBox(width: 12),
-                          Expanded(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text(
-                                  item.name,
-                                  style: const TextStyle(
-                                    fontWeight: FontWeight.w700,
-                                    color: AppColors.navy,
-                                  ),
-                                ),
-                                const SizedBox(height: 2),
-                                Text(
-                                  '${item.sizeLabel}\nB&W ₱${item.priceBw.toStringAsFixed(2)} · Color ₱${item.priceColor.toStringAsFixed(2)}',
-                                  style: const TextStyle(
-                                    color: AppColors.muted,
-                                    fontSize: 13,
-                                    height: 1.35,
-                                  ),
-                                ),
-                              ],
-                            ),
+                        ),
+                        if (_canAddCurrent) ...[
+                          const SizedBox(width: 8),
+                          OutlinedButton(
+                            onPressed: _submitting
+                                ? null
+                                : () {
+                                    setState(() {
+                                      _addCurrentToOrder();
+                                      _error = null;
+                                      _success = null;
+                                    });
+                                  },
+                            child: const Text('Add'),
                           ),
                         ],
-                      ),
-                    ),
-                  ),
-                ),
-              );
-            }),
-          const SizedBox(height: 14),
-          const SectionTitle('3. Copies'),
-          const SizedBox(height: 10),
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-            decoration: BoxDecoration(
-              color: Colors.white,
-              borderRadius: BorderRadius.circular(16),
-            ),
-            child: Row(
-              children: [
-                IconButton(
-                  onPressed: _submitting || _copies <= 1
-                      ? null
-                      : () => setState(() => _copies -= 1),
-                  icon: const Icon(Icons.remove_circle_outline),
-                ),
-                Expanded(
-                  child: Text(
-                    '$_copies',
-                    textAlign: TextAlign.center,
-                    style: const TextStyle(
-                      fontSize: 20,
-                      fontWeight: FontWeight.w800,
-                      color: AppColors.navy,
-                    ),
-                  ),
-                ),
-                IconButton(
-                  onPressed: _submitting || _copies >= 50
-                      ? null
-                      : () => setState(() => _copies += 1),
-                  icon: const Icon(Icons.add_circle_outline),
-                ),
-              ],
-            ),
-          ),
-          const SizedBox(height: 24),
-          Container(
-            padding: const EdgeInsets.all(16),
-            decoration: BoxDecoration(
-              color: Colors.white,
-              borderRadius: BorderRadius.circular(16),
-            ),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                PriceRow(
-                  label: 'B&W pages',
-                  value:
-                      '$_bwPages × $_copies × ₱${_bwUnit.toStringAsFixed(2)} = ₱${_bwSubtotal.toStringAsFixed(2)}',
-                ),
-                const SizedBox(height: 8),
-                PriceRow(
-                  label: 'Color pages',
-                  value:
-                      '$_colorPages × $_copies × ₱${_colorUnit.toStringAsFixed(2)} = ₱${_colorSubtotal.toStringAsFixed(2)}',
-                ),
-                const Divider(height: 24),
-                Row(
-                  children: [
-                    const Text(
-                      'Estimated total',
-                      style: TextStyle(
-                        fontWeight: FontWeight.w700,
-                        color: AppColors.navy,
-                      ),
-                    ),
-                    const Spacer(),
-                    Text(
-                      '₱${_total.toStringAsFixed(2)}',
-                      style: const TextStyle(
-                        fontSize: 22,
-                        fontWeight: FontWeight.w800,
-                        color: AppColors.purple,
-                      ),
+                        const SizedBox(width: 8),
+                        SizedBox(
+                          width: 132,
+                          child: GradientButton(
+                            label: 'Submit',
+                            busy: _submitting,
+                            onPressed: _canPrint ? _submit : null,
+                          ),
+                        ),
+                      ],
                     ),
                   ],
                 ),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _BigUploadButton extends StatelessWidget {
+  const _BigUploadButton({
+    required this.onTap,
+    this.busy = false,
+    this.label = 'Upload document',
+  });
+
+  final VoidCallback? onTap;
+  final bool busy;
+  final String label;
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: Colors.white,
+      borderRadius: BorderRadius.circular(28),
+      elevation: 2,
+      shadowColor: Colors.black26,
+      child: InkWell(
+        borderRadius: BorderRadius.circular(28),
+        onTap: onTap,
+        child: Container(
+          width: double.infinity,
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(28),
+            border: Border.all(
+              color: AppColors.purple.withValues(alpha: 0.28),
+              width: 2,
+            ),
+          ),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Container(
+                width: 108,
+                height: 108,
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  gradient: AppTheme.brandGradient,
+                  boxShadow: [
+                    BoxShadow(
+                      color: AppColors.purple.withValues(alpha: 0.28),
+                      blurRadius: 24,
+                      offset: const Offset(0, 10),
+                    ),
+                  ],
+                ),
+                child: busy
+                    ? const Padding(
+                        padding: EdgeInsets.all(34),
+                        child: CircularProgressIndicator(
+                          strokeWidth: 3,
+                          color: Colors.white,
+                        ),
+                      )
+                    : const Icon(
+                        Icons.upload_file_rounded,
+                        size: 48,
+                        color: Colors.white,
+                      ),
+              ),
+              const SizedBox(height: 28),
+              Text(
+                label,
+                style: const TextStyle(
+                  fontSize: 26,
+                  fontWeight: FontWeight.w900,
+                  color: AppColors.navy,
+                ),
+              ),
+              const SizedBox(height: 10),
+              Text(
+                'Tap to choose a PDF file',
+                style: TextStyle(
+                  fontSize: 15,
+                  color: AppColors.muted.withValues(alpha: 0.95),
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _DocumentPreview extends StatelessWidget {
+  const _DocumentPreview({
+    required this.path,
+    required this.reading,
+    required this.bwPages,
+    required this.colorPages,
+    required this.pageIsColor,
+    required this.pageFilter,
+    required this.sizeMatched,
+    required this.onFilterBw,
+    required this.onFilterColor,
+    this.sizeName,
+    this.sizeLabel,
+    this.onChange,
+    this.onClear,
+  });
+
+  final String path;
+  final bool reading;
+  final int bwPages;
+  final int colorPages;
+  final List<bool> pageIsColor;
+  final _PageInkFilter pageFilter;
+  final bool sizeMatched;
+  final VoidCallback onFilterBw;
+  final VoidCallback onFilterColor;
+  final String? sizeName;
+  final String? sizeLabel;
+  final VoidCallback? onChange;
+  final VoidCallback? onClear;
+
+  bool _pageVisible(int pageNumber) {
+    if (pageFilter == _PageInkFilter.all || pageIsColor.isEmpty) {
+      return true;
+    }
+    final index = pageNumber - 1;
+    if (index < 0 || index >= pageIsColor.length) {
+      return true; // keep page visible if classification is missing
+    }
+    final isColor = pageIsColor[index];
+    return pageFilter == _PageInkFilter.color ? isColor : !isColor;
+  }
+
+  int get _firstVisiblePageNumber {
+    for (var i = 0; i < pageIsColor.length; i++) {
+      if (_pageVisible(i + 1)) {
+        return i + 1;
+      }
+    }
+    return 1;
+  }
+
+  int get _filteredCount {
+    if (pageFilter == _PageInkFilter.bw) {
+      return bwPages;
+    }
+    if (pageFilter == _PageInkFilter.color) {
+      return colorPages;
+    }
+    return bwPages + colorPages;
+  }
+
+  PdfPageLayout _layoutFilteredPages(
+    List<PdfPage> pages,
+    PdfViewerParams params,
+  ) {
+    // Always keep non-zero rects. Hidden pages are parked off-screen so the
+    // viewer does not blank when the first document page is filtered out.
+    final visiblePages = [
+      for (final page in pages)
+        if (_pageVisible(page.pageNumber)) page,
+    ];
+
+    final contentWidth = visiblePages.isEmpty
+        ? pages.fold<double>(
+            0,
+            (w, page) => math.max(w, page.width.toDouble()),
+          )
+        : visiblePages.fold<double>(
+            0,
+            (w, page) => math.max(w, page.width.toDouble()),
+          );
+    final width = math.max(contentWidth, 1.0);
+
+    final layouts = List<Rect>.filled(
+      pages.length,
+      const Rect.fromLTWH(-1, -1, 1, 1),
+    );
+    var y = 0.0;
+
+    for (var i = 0; i < pages.length; i++) {
+      final page = pages[i];
+      final pageWidth = math.max(page.width.toDouble(), 1.0);
+      final pageHeight = math.max(page.height.toDouble(), 1.0);
+
+      if (_pageVisible(page.pageNumber) && visiblePages.isNotEmpty) {
+        layouts[i] = Rect.fromLTWH(
+          (width - pageWidth) / 2,
+          y,
+          pageWidth,
+          pageHeight,
+        );
+        y += pageHeight;
+      } else {
+        // Park filtered-out pages left of the viewport (still valid size).
+        layouts[i] = Rect.fromLTWH(
+          -pageWidth - 64,
+          0,
+          pageWidth,
+          pageHeight,
+        );
+      }
+    }
+
+    return PdfPageLayout(
+      pageLayouts: layouts,
+      documentSize: Size(width, math.max(y, 1.0)),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final hasFilteredPages = pageFilter == _PageInkFilter.all ||
+        _filteredCount > 0 ||
+        pageIsColor.isEmpty;
+
+    return Stack(
+      children: [
+        Positioned.fill(
+          child: ColoredBox(
+            color: const Color(0xFFE8ECF4),
+            child: hasFilteredPages
+                ? PdfViewer.file(
+                    path,
+                    key: ValueKey(
+                      'preview-$path-$pageFilter-$_firstVisiblePageNumber',
+                    ),
+                    initialPageNumber: _firstVisiblePageNumber,
+                    params: PdfViewerParams(
+                      margin: 0,
+                      backgroundColor: const Color(0xFFE8ECF4),
+                      layoutPages: pageFilter == _PageInkFilter.all
+                          ? null
+                          : _layoutFilteredPages,
+                    ),
+                  )
+                : Center(
+                    child: Text(
+                      pageFilter == _PageInkFilter.color
+                          ? 'No color pages detected'
+                          : 'No B&W pages detected',
+                      style: const TextStyle(
+                        color: AppColors.muted,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  ),
+          ),
+        ),
+        if (reading)
+          const Positioned.fill(
+            child: ColoredBox(
+              color: Color(0x66FFFFFF),
+              child: Center(child: CircularProgressIndicator()),
+            ),
+          ),
+        Positioned(
+          left: 12,
+          top: 12,
+          right: 12,
+          child: Row(
+            children: [
+              Flexible(
+                child: Material(
+                  color: Colors.white.withValues(alpha: 0.94),
+                  borderRadius: BorderRadius.circular(999),
+                  elevation: 3,
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 12,
+                      vertical: 8,
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(
+                          Icons.crop_free,
+                          size: 16,
+                          color: sizeMatched
+                              ? AppColors.purple
+                              : AppColors.muted,
+                        ),
+                        const SizedBox(width: 6),
+                        Flexible(
+                          child: Text(
+                            sizeMatched && sizeName != null
+                                ? '$sizeName · ${sizeLabel ?? ''}'
+                                : 'Size not matched',
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(
+                              fontWeight: FontWeight.w800,
+                              color: AppColors.navy,
+                              fontSize: 12,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+              const SizedBox(width: 8),
+              Material(
+                color: Colors.white.withValues(alpha: 0.94),
+                borderRadius: BorderRadius.circular(999),
+                elevation: 3,
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    IconButton(
+                      tooltip: 'Change',
+                      onPressed: onChange,
+                      icon: const Icon(Icons.swap_horiz),
+                    ),
+                    IconButton(
+                      tooltip: 'Remove',
+                      onPressed: onClear,
+                      icon: const Icon(Icons.close),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+        if (!reading)
+          Positioned(
+            right: 14,
+            bottom: 14,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                _CountBadgeIcon(
+                  icon: Icons.filter_b_and_w,
+                  count: bwPages,
+                  color: AppColors.navy,
+                  selected: pageFilter == _PageInkFilter.bw,
+                  tooltip: pageFilter == _PageInkFilter.bw
+                      ? 'Show all pages'
+                      : 'Show B&W pages only',
+                  onTap: bwPages > 0 ? onFilterBw : null,
+                ),
+                const SizedBox(height: 10),
+                _CountBadgeIcon(
+                  icon: Icons.palette_outlined,
+                  count: colorPages,
+                  color: AppColors.purple,
+                  selected: pageFilter == _PageInkFilter.color,
+                  tooltip: pageFilter == _PageInkFilter.color
+                      ? 'Show all pages'
+                      : 'Show color pages only',
+                  onTap: colorPages > 0 ? onFilterColor : null,
+                ),
               ],
             ),
           ),
-          if (_error != null) ...[
-            const SizedBox(height: 14),
-            MessageBanner(message: _error!, isError: true),
-          ],
-          if (_success != null) ...[
-            const SizedBox(height: 14),
-            MessageBanner(message: _success!),
-          ],
-          const SizedBox(height: 18),
-          GradientButton(
-            label: 'Upload & send to print',
-            busy: _submitting,
-            onPressed: _submitting || _readingPdf || _sizes.isEmpty
-                ? null
-                : _submit,
+      ],
+    );
+  }
+}
+
+class _CountBadgeIcon extends StatelessWidget {
+  const _CountBadgeIcon({
+    required this.icon,
+    required this.count,
+    required this.color,
+    required this.tooltip,
+    required this.onTap,
+    this.selected = false,
+  });
+
+  final IconData icon;
+  final int count;
+  final Color color;
+  final String tooltip;
+  final VoidCallback? onTap;
+  final bool selected;
+
+  @override
+  Widget build(BuildContext context) {
+    return Tooltip(
+      message: tooltip,
+      child: Material(
+        color: selected ? color.withValues(alpha: 0.12) : Colors.white,
+        elevation: selected ? 8 : 6,
+        shadowColor: Colors.black38,
+        shape: CircleBorder(
+          side: BorderSide(
+            color: selected ? color : Colors.transparent,
+            width: 2,
           ),
-        ],
+        ),
+        child: InkWell(
+          customBorder: const CircleBorder(),
+          onTap: onTap,
+          child: Opacity(
+            opacity: onTap == null ? 0.45 : 1,
+            child: Badge(
+              isLabelVisible: true,
+              label: Text(
+                '$count',
+                style: const TextStyle(
+                  fontSize: 10,
+                  fontWeight: FontWeight.w800,
+                ),
+              ),
+              backgroundColor: color,
+              child: SizedBox(
+                width: 46,
+                height: 46,
+                child: Icon(icon, color: color),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _StatusGlowLight extends StatefulWidget {
+  const _StatusGlowLight({required this.online});
+
+  final bool online;
+
+  @override
+  State<_StatusGlowLight> createState() => _StatusGlowLightState();
+}
+
+class _StatusGlowLightState extends State<_StatusGlowLight>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _controller = AnimationController(
+    vsync: this,
+    duration: const Duration(milliseconds: 1400),
+  );
+
+  @override
+  void initState() {
+    super.initState();
+    if (widget.online) {
+      _controller.repeat();
+    }
+  }
+
+  @override
+  void didUpdateWidget(covariant _StatusGlowLight oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.online && !_controller.isAnimating) {
+      _controller.repeat();
+    } else if (!widget.online && _controller.isAnimating) {
+      _controller
+        ..stop()
+        ..value = 0;
+    }
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (!widget.online) {
+      return Container(
+        width: 10,
+        height: 10,
+        decoration: BoxDecoration(
+          shape: BoxShape.circle,
+          color: Colors.white.withValues(alpha: 0.28),
+        ),
+      );
+    }
+
+    return SizedBox(
+      width: 18,
+      height: 18,
+      child: AnimatedBuilder(
+        animation: _controller,
+        builder: (context, child) {
+          final t = _controller.value;
+          final pulse = 1 - t;
+          return Stack(
+            alignment: Alignment.center,
+            children: [
+              Container(
+                width: 16 * (0.5 + t * 0.85),
+                height: 16 * (0.5 + t * 0.85),
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  color: const Color(0xFF22C55E).withValues(alpha: 0.4 * pulse),
+                ),
+              ),
+              Container(
+                width: 9,
+                height: 9,
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  color: const Color(0xFF4ADE80),
+                  boxShadow: [
+                    BoxShadow(
+                      color: const Color(0xFF22C55E).withValues(alpha: 0.95),
+                      blurRadius: 8,
+                      spreadRadius: 1,
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          );
+        },
       ),
     );
   }

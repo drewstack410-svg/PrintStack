@@ -50,9 +50,9 @@ class ApiClient {
     Map<String, String>? query,
   }) async {
     final token = await _idToken();
-    final uri = Uri.parse('${AppConfig.apiUrl}$path').replace(
-      queryParameters: query == null || query.isEmpty ? null : query,
-    );
+    final uri = Uri.parse(
+      '${AppConfig.apiUrl}$path',
+    ).replace(queryParameters: query == null || query.isEmpty ? null : query);
     final headers = {
       'Authorization': 'Bearer $token',
       'Accept': 'application/json',
@@ -118,15 +118,28 @@ class ApiClient {
         'partners/$partnerId/jobs/${user.uid}/${DateTime.now().millisecondsSinceEpoch}_$safeName';
     final ref = _storage.ref(objectPath);
 
-    await ref.putFile(
-      file,
-      SettableMetadata(contentType: 'application/pdf'),
-    );
+    await ref.putFile(file, SettableMetadata(contentType: 'application/pdf'));
 
     final fileUrl = await ref.getDownloadURL();
     return (fileUrl: fileUrl, filePath: objectPath);
   }
 
+  Future<Map<String, dynamic>> createCustomerPrintOrder({
+    required String partnerId,
+    required List<Map<String, dynamic>> documents,
+  }) {
+    if (documents.isEmpty) {
+      throw const ApiException('Add at least one document to the order.');
+    }
+
+    return _request(
+      'POST',
+      '/api/partners/$partnerId/print-jobs',
+      body: {'documents': documents},
+    );
+  }
+
+  @Deprecated('Use createCustomerPrintOrder with documents list')
   Future<Map<String, dynamic>> createCustomerPrintJob({
     required String partnerId,
     required String documentName,
@@ -142,25 +155,26 @@ class ApiClient {
     final resolvedMode = colorPages > 0 && bwPages > 0
         ? 'mixed'
         : colorPages > 0
-            ? 'color'
-            : colorMode == 'color'
-                ? 'color'
-                : 'bw';
+        ? 'color'
+        : colorMode == 'color'
+        ? 'color'
+        : 'bw';
 
-    return _request(
-      'POST',
-      '/api/partners/$partnerId/print-jobs',
-      body: {
-        'documentName': documentName,
-        'fileUrl': fileUrl,
-        'filePath': filePath,
-        'paperSizeId': paperSizeId,
-        'copies': copies,
-        'pages': pages,
-        'bwPages': bwPages,
-        'colorPages': colorPages,
-        'colorMode': resolvedMode,
-      },
+    return createCustomerPrintOrder(
+      partnerId: partnerId,
+      documents: [
+        {
+          'documentName': documentName,
+          'fileUrl': fileUrl,
+          'filePath': filePath,
+          'paperSizeId': paperSizeId,
+          'copies': copies,
+          'pages': pages,
+          'bwPages': bwPages,
+          'colorPages': colorPages,
+          'colorMode': resolvedMode,
+        },
+      ],
     );
   }
 
@@ -184,19 +198,57 @@ class ApiClient {
     final payload = await _request(
       'GET',
       '/api/geo/reverse',
-      query: {
-        'lat': lat.toString(),
-        'lng': lng.toString(),
-      },
+      query: {'lat': lat.toString(), 'lng': lng.toString()},
     );
     return (payload['label'] ?? '').toString();
   }
 
-  Future<({
-    List<({double lat, double lng})> points,
-    String distanceText,
-    String durationText,
-  })> fetchRoute({
+  Future<
+    List<({String id, String label, double lat, double lng})>
+  >
+  autocompletePlaces(String query) async {
+    final text = query.trim();
+    if (text.length < 2) {
+      return const [];
+    }
+
+    final payload = await _request(
+      'GET',
+      '/api/geo/autocomplete',
+      query: {'q': text},
+    );
+    final raw = payload['results'];
+    if (raw is! List) {
+      return const [];
+    }
+
+    return raw
+        .whereType<Map>()
+        .map((item) {
+          final lat = (item['lat'] as num?)?.toDouble();
+          final lng = (item['lng'] as num?)?.toDouble();
+          if (lat == null || lng == null) {
+            return null;
+          }
+          return (
+            id: (item['id'] ?? '$lat,$lng').toString(),
+            label: (item['label'] ?? '').toString(),
+            lat: lat,
+            lng: lng,
+          );
+        })
+        .whereType<({String id, String label, double lat, double lng})>()
+        .toList(growable: false);
+  }
+
+  Future<
+    ({
+      List<({double lat, double lng})> points,
+      String distanceText,
+      String durationText,
+    })
+  >
+  fetchRoute({
     required double fromLat,
     required double fromLng,
     required double toLat,

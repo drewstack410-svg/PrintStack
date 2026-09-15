@@ -34,8 +34,8 @@ function createLogoPinOverlay(maps) {
       this.onClick = onClick
       this.onDragEnd = onDragEnd
       this.el = null
+      this.shadow = null
       this.dragging = false
-      this.mapListeners = []
       this._onPointerDown = this._onPointerDown.bind(this)
       this._onPointerMove = this._onPointerMove.bind(this)
       this._onPointerUp = this._onPointerUp.bind(this)
@@ -90,8 +90,15 @@ function createLogoPinOverlay(maps) {
         wrap.addEventListener('pointerdown', this._onPointerDown)
       }
 
+      const shadow = document.createElement('span')
+      shadow.className = 'ps-logo-pin-shadow'
+      shadow.setAttribute('aria-hidden', 'true')
+
       this.el = wrap
-      this.getPanes().overlayMouseTarget.appendChild(wrap)
+      this.shadow = shadow
+      const pane = this.getPanes().overlayMouseTarget
+      pane.appendChild(shadow)
+      pane.appendChild(wrap)
     }
 
     _onPointerDown(event) {
@@ -102,7 +109,9 @@ function createLogoPinOverlay(maps) {
       event.stopPropagation()
       this.dragging = true
       this.moved = false
+      this.el?.classList.remove('is-drop')
       this.el?.classList.add('is-dragging')
+      this.shadow?.classList.add('is-dragging')
       this.el?.setPointerCapture?.(event.pointerId)
 
       const map = this.getMap()
@@ -154,6 +163,14 @@ function createLogoPinOverlay(maps) {
       }
 
       this.el?.classList.remove('is-dragging')
+      this.shadow?.classList.remove('is-dragging')
+      if (this.moved) {
+        this.el?.classList.add('is-drop')
+        window.setTimeout(() => {
+          this.el?.classList.remove('is-drop')
+        }, 420)
+      }
+
       const moved = this.moved
       const lat = this.position?.lat?.() ?? this.position?.lat
       const lng = this.position?.lng?.() ?? this.position?.lng
@@ -182,6 +199,10 @@ function createLogoPinOverlay(maps) {
 
       this.el.style.left = `${point.x}px`
       this.el.style.top = `${point.y}px`
+      if (this.shadow) {
+        this.shadow.style.left = `${point.x}px`
+        this.shadow.style.top = `${point.y}px`
+      }
     }
 
     onRemove() {
@@ -189,7 +210,9 @@ function createLogoPinOverlay(maps) {
       window.removeEventListener('pointerup', this._onPointerUp)
       window.removeEventListener('pointercancel', this._onPointerUp)
       this.el?.remove()
+      this.shadow?.remove()
       this.el = null
+      this.shadow = null
     }
   }
 }
@@ -197,6 +220,7 @@ function createLogoPinOverlay(maps) {
 export default function PartnerLocationMap({
   markers = [],
   editable = false,
+  focusPoint = null,
   onLocationPick,
 }) {
   const containerRef = useRef(null)
@@ -206,6 +230,7 @@ export default function PartnerLocationMap({
   const clickListenerRef = useRef(null)
   const onPickRef = useRef(onLocationPick)
   const fittedKeyRef = useRef('')
+  const focusTokenRef = useRef(null)
 
   useEffect(() => {
     onPickRef.current = onLocationPick
@@ -280,6 +305,24 @@ export default function PartnerLocationMap({
         bounds.extend(position)
       })
 
+      const focusToken = focusPoint?.token
+      const shouldFocus =
+        focusPoint &&
+        Number.isFinite(focusPoint.lat) &&
+        Number.isFinite(focusPoint.lng) &&
+        focusToken != null &&
+        focusToken !== focusTokenRef.current
+
+      if (shouldFocus) {
+        focusTokenRef.current = focusToken
+        fittedKeyRef.current = `${focusPoint.lat.toFixed(5)}:${focusPoint.lng.toFixed(5)}`
+        map.panTo({ lat: focusPoint.lat, lng: focusPoint.lng })
+        if (map.getZoom() < DEFAULT_MAP_ZOOM - 1) {
+          map.setZoom(DEFAULT_MAP_ZOOM)
+        }
+        return
+      }
+
       const fitKey = points.map((item) => `${item.id}:${item.lat.toFixed(5)}:${item.lng.toFixed(5)}`).join('|')
       if (fitKey !== fittedKeyRef.current) {
         fittedKeyRef.current = fitKey
@@ -304,7 +347,7 @@ export default function PartnerLocationMap({
     return () => {
       cancelled = true
     }
-  }, [markers, editable])
+  }, [markers, editable, focusPoint])
 
   return (
     <div

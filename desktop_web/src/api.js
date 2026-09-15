@@ -130,6 +130,12 @@ export function listPaperSizes(idToken) {
   return authorizedJson('/api/paper-sizes', idToken)
 }
 
+export function resetPaperSizes(idToken) {
+  return authorizedJson('/api/paper-sizes/reset', idToken, {
+    method: 'POST',
+  })
+}
+
 export function createPaperSize(idToken, body) {
   return authorizedJson('/api/paper-sizes', idToken, {
     method: 'POST',
@@ -184,6 +190,13 @@ export function reverseGeocodeViaApi(idToken, lat, lng) {
     lng: String(lng),
   })
   return authorizedJson(`/api/geo/reverse?${params}`, idToken)
+}
+
+export function autocompleteLocationViaApi(idToken, query) {
+  const params = new URLSearchParams({
+    q: String(query || ''),
+  })
+  return authorizedJson(`/api/geo/autocomplete?${params}`, idToken)
 }
 
 export function fetchRouteViaApi(idToken, { fromLat, fromLng, toLat, toLng }) {

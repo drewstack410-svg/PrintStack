@@ -11,18 +11,39 @@ class PdfDocumentInfo {
     required this.colorPages,
     required this.bwPages,
     this.detectionSource = 'pixels',
+    this.pageWidthPt = 0,
+    this.pageHeightPt = 0,
+    this.pageIsColor = const [],
   });
 
   final int pages;
   final int colorPages;
   final int bwPages;
   final String detectionSource;
+  /// First-page size in PDF points (1/72").
+  final double pageWidthPt;
+  final double pageHeightPt;
+  /// Per-page color flags (index 0 = page 1).
+  final List<bool> pageIsColor;
 
   bool get hasColor => colorPages > 0;
   bool get isMixed => colorPages > 0 && bwPages > 0;
 
   /// Legacy single-mode flag: true when any page looks colored.
   bool get isColor => hasColor;
+
+  double get pageWidthMm => pageWidthPt * 25.4 / 72;
+  double get pageHeightMm => pageHeightPt * 25.4 / 72;
+
+  List<int> get colorPageNumbers => [
+        for (var i = 0; i < pageIsColor.length; i++)
+          if (pageIsColor[i]) i + 1,
+      ];
+
+  List<int> get bwPageNumbers => [
+        for (var i = 0; i < pageIsColor.length; i++)
+          if (!pageIsColor[i]) i + 1,
+      ];
 }
 
 /// Returns page count and per-page B&W vs color classification.
@@ -33,9 +54,16 @@ Future<PdfDocumentInfo> analyzePdf(String filePath) async {
     var colorPages = 0;
     var bwPages = 0;
     var renderedAny = false;
+    var pageWidthPt = 0.0;
+    var pageHeightPt = 0.0;
+    final pageIsColor = <bool>[];
 
     for (var i = 0; i < pages; i++) {
       final page = await doc.pages[i].ensureLoaded();
+      if (i == 0) {
+        pageWidthPt = page.width;
+        pageHeightPt = page.height;
+      }
       final fullWidth = 200.0;
       final fullHeight = fullWidth * (page.height / math.max(page.width, 1));
       final image = await page.render(
@@ -44,11 +72,14 @@ Future<PdfDocumentInfo> analyzePdf(String filePath) async {
       );
       if (image == null) {
         bwPages += 1;
+        pageIsColor.add(false);
         continue;
       }
       renderedAny = true;
       try {
-        if (_pixelsLookColor(image.pixels, image.width, image.height)) {
+        final isColor = _pixelsLookColor(image.pixels, image.width, image.height);
+        pageIsColor.add(isColor);
+        if (isColor) {
           colorPages += 1;
         } else {
           bwPages += 1;
@@ -62,11 +93,15 @@ Future<PdfDocumentInfo> analyzePdf(String filePath) async {
     if (!renderedAny) {
       final bytes = await File(filePath).readAsBytes();
       final allColor = _bytesSuggestColor(bytes);
+      final total = pages < 1 ? 1 : pages;
       return PdfDocumentInfo(
-        pages: pages < 1 ? 1 : pages,
-        colorPages: allColor ? (pages < 1 ? 1 : pages) : 0,
-        bwPages: allColor ? 0 : (pages < 1 ? 1 : pages),
+        pages: total,
+        colorPages: allColor ? total : 0,
+        bwPages: allColor ? 0 : total,
         detectionSource: 'content',
+        pageWidthPt: pageWidthPt,
+        pageHeightPt: pageHeightPt,
+        pageIsColor: List<bool>.filled(total, allColor),
       );
     }
 
@@ -76,6 +111,9 @@ Future<PdfDocumentInfo> analyzePdf(String filePath) async {
       colorPages: colorPages,
       bwPages: bwPages < 1 && colorPages < 1 ? 1 : bwPages,
       detectionSource: 'pixels',
+      pageWidthPt: pageWidthPt,
+      pageHeightPt: pageHeightPt,
+      pageIsColor: pageIsColor.isEmpty ? const [false] : pageIsColor,
     );
   } finally {
     await doc.dispose();
@@ -91,11 +129,15 @@ Future<PdfDocumentInfo> analyzePdfSafe(String filePath) async {
       final bytes = await File(filePath).readAsBytes();
       final pages = estimatePdfPagesFromBytes(bytes);
       final allColor = _bytesSuggestColor(bytes);
+      final media = estimatePdfPageSizeFromBytes(bytes);
       return PdfDocumentInfo(
         pages: pages,
         colorPages: allColor ? pages : 0,
         bwPages: allColor ? 0 : pages,
         detectionSource: 'content',
+        pageWidthPt: media.$1,
+        pageHeightPt: media.$2,
+        pageIsColor: List<bool>.filled(pages, allColor),
       );
     } catch (_) {
       return const PdfDocumentInfo(
@@ -103,6 +145,7 @@ Future<PdfDocumentInfo> analyzePdfSafe(String filePath) async {
         colorPages: 0,
         bwPages: 1,
         detectionSource: 'fallback',
+        pageIsColor: [false],
       );
     }
   }
@@ -113,6 +156,22 @@ int estimatePdfPagesFromBytes(Uint8List bytes) {
   final text = String.fromCharCodes(bytes);
   final matches = RegExp(r'/Type\s*/Page(?!\w)').allMatches(text).length;
   return matches > 0 ? matches : 1;
+}
+
+/// Best-effort MediaBox size in PDF points.
+(double, double) estimatePdfPageSizeFromBytes(Uint8List bytes) {
+  final text = String.fromCharCodes(bytes);
+  final match = RegExp(
+    r'/MediaBox\s*\[\s*([0-9.]+)\s+([0-9.]+)\s+([0-9.]+)\s+([0-9.]+)\s*\]',
+  ).firstMatch(text);
+  if (match == null) {
+    return (0, 0);
+  }
+  final x0 = double.tryParse(match.group(1)!) ?? 0;
+  final y0 = double.tryParse(match.group(2)!) ?? 0;
+  final x1 = double.tryParse(match.group(3)!) ?? 0;
+  final y1 = double.tryParse(match.group(4)!) ?? 0;
+  return ((x1 - x0).abs(), (y1 - y0).abs());
 }
 
 bool _bytesSuggestColor(Uint8List bytes) {

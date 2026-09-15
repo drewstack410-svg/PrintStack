@@ -148,7 +148,7 @@ export const paperSizeInitialValues = {
   name: '',
   width: '',
   height: '',
-  unit: 'mm',
+  unit: 'in',
   priceBw: '',
   priceColor: '',
 }
