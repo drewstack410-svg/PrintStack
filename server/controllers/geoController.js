@@ -187,6 +187,81 @@ function trafficLevelFromDurations(baseSeconds, trafficSeconds) {
   return 'heavy'
 }
 
+function parseDurationSeconds(value) {
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    return value
+  }
+  const match = String(value || '').match(/^(\d+(?:\.\d+)?)s$/i)
+  return match ? Number(match[1]) : 0
+}
+
+async function routeWithGoogleRoutesApi(fromLat, fromLng, toLat, toLng, apiKey) {
+  const response = await fetch('https://routes.googleapis.com/directions/v2:computeRoutes', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'X-Goog-Api-Key': apiKey,
+      'X-Goog-FieldMask': [
+        'routes.duration',
+        'routes.staticDuration',
+        'routes.distanceMeters',
+        'routes.polyline.encodedPolyline',
+        'routes.legs.polyline.encodedPolyline',
+      ].join(','),
+    },
+    body: JSON.stringify({
+      origin: {
+        location: { latLng: { latitude: fromLat, longitude: fromLng } },
+      },
+      destination: {
+        location: { latLng: { latitude: toLat, longitude: toLng } },
+      },
+      travelMode: 'DRIVE',
+      routingPreference: 'TRAFFIC_AWARE',
+      polylineQuality: 'HIGH_QUALITY',
+      computeAlternativeRoutes: false,
+      languageCode: 'en-US',
+      units: 'METRIC',
+    }),
+  })
+
+  const payload = await response.json()
+  if (!response.ok) {
+    throw new Error(
+      payload.error?.message || `Google Routes API HTTP ${response.status}`,
+    )
+  }
+
+  const route = payload.routes?.[0]
+  if (!route) {
+    throw new Error('Google Routes API returned no routes')
+  }
+
+  let encoded = route.polyline?.encodedPolyline || ''
+  if (!encoded) {
+    encoded = route.legs?.[0]?.polyline?.encodedPolyline || ''
+  }
+
+  const points = encoded ? decodeGooglePolyline(encoded) : []
+  if (points.length < 2) {
+    throw new Error('Google Routes API returned an empty polyline')
+  }
+
+  const trafficSeconds = parseDurationSeconds(route.duration)
+  const staticSeconds = parseDurationSeconds(route.staticDuration) || trafficSeconds
+  const distanceMeters = Number(route.distanceMeters) || 0
+
+  return {
+    points,
+    distanceText: formatDistance(distanceMeters),
+    durationText: formatDuration(staticSeconds),
+    durationInTrafficText: formatDuration(trafficSeconds),
+    trafficLevel: trafficLevelFromDurations(staticSeconds, trafficSeconds),
+    hasTraffic: Boolean(route.duration),
+    source: 'google_routes',
+  }
+}
+
 async function routeWithGeoapify(fromLat, fromLng, toLat, toLng, apiKey) {
   const params = new URLSearchParams({
     waypoints: `${fromLat},${fromLng}|${toLat},${toLng}`,
@@ -219,7 +294,7 @@ async function routeWithGeoapify(fromLat, fromLng, toLat, toLng, apiKey) {
   }
 }
 
-async function routeWithGoogle(fromLat, fromLng, toLat, toLng, apiKey) {
+async function routeWithGoogleDirections(fromLat, fromLng, toLat, toLng, apiKey) {
   const params = new URLSearchParams({
     origin: `${fromLat},${fromLng}`,
     destination: `${toLat},${toLng}`,
@@ -240,7 +315,6 @@ async function routeWithGoogle(fromLat, fromLng, toLat, toLng, apiKey) {
   const leg = route?.legs?.[0]
   const points = []
 
-  // Prefer step polylines for road-accurate paths.
   for (const step of leg?.steps || []) {
     const encoded = step?.polyline?.points
     if (encoded) {
@@ -270,7 +344,7 @@ async function routeWithGoogle(fromLat, fromLng, toLat, toLng, apiKey) {
       leg?.duration_in_traffic?.text || formatDuration(trafficSeconds),
     trafficLevel: trafficLevelFromDurations(baseSeconds, trafficSeconds),
     hasTraffic: Boolean(leg?.duration_in_traffic),
-    source: 'google',
+    source: 'google_directions',
   }
 }
 
@@ -396,14 +470,24 @@ async function route(req, res) {
     const googleKey = googleMapsApiKey()
 
     let result = null
-    let lastError = null
+    const errors = []
 
-    // Prefer Google when available — live traffic ETA + road-accurate polylines.
+    // Prefer Google Routes API (new) — works with modern key restrictions + traffic.
     if (googleKey) {
       try {
-        result = await routeWithGoogle(fromLat, fromLng, toLat, toLng, googleKey)
+        result = await routeWithGoogleRoutesApi(fromLat, fromLng, toLat, toLng, googleKey)
       } catch (error) {
-        lastError = error
+        errors.push(`routes: ${error.message}`)
+        console.warn('[geo/route] Google Routes API failed:', error.message)
+      }
+    }
+
+    if (!result && googleKey) {
+      try {
+        result = await routeWithGoogleDirections(fromLat, fromLng, toLat, toLng, googleKey)
+      } catch (error) {
+        errors.push(`directions: ${error.message}`)
+        console.warn('[geo/route] Google Directions failed:', error.message)
       }
     }
 
@@ -411,7 +495,8 @@ async function route(req, res) {
       try {
         result = await routeWithGeoapify(fromLat, fromLng, toLat, toLng, geoapifyKey)
       } catch (error) {
-        lastError = error
+        errors.push(`geoapify: ${error.message}`)
+        console.warn('[geo/route] Geoapify failed:', error.message)
       }
     }
 
@@ -427,7 +512,7 @@ async function route(req, res) {
         trafficLevel: 'unknown',
         hasTraffic: false,
         source: 'fallback',
-        warning: lastError?.message || 'Routing providers unavailable',
+        warning: errors.join(' | ') || 'Routing providers unavailable',
       }
     }
 
