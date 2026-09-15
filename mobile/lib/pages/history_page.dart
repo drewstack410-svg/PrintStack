@@ -86,6 +86,15 @@ class _HistoryTile extends StatelessWidget {
     final active = job.status == 'printing' ||
         job.status == 'queued' ||
         job.status == 'sending';
+    final statusLabel = switch (job.status) {
+      'awaiting_payment' => 'Awaiting payment',
+      'sending' => 'Sending',
+      'queued' => 'Queued',
+      'printing' => 'Printing',
+      'printed' => 'Printed',
+      'failed' => 'Failed',
+      _ => job.status.isEmpty ? 'Queued' : job.status,
+    };
 
     return Container(
       padding: const EdgeInsets.all(14),
@@ -145,7 +154,7 @@ class _HistoryTile extends StatelessWidget {
             crossAxisAlignment: CrossAxisAlignment.end,
             children: [
               StatusChip(
-                label: job.status,
+                label: statusLabel,
                 active: active || job.status == 'printed',
               ),
               if (job.totalPrice > 0) ...[

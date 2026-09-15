@@ -2,7 +2,14 @@ const { FieldValue } = require('firebase-admin/firestore')
 const { db } = require('../firestore')
 const { normalizePaperSizes } = require('../lib/paperSizes')
 
-const STATUSES = new Set(['sending', 'queued', 'printing', 'printed', 'failed'])
+const STATUSES = new Set([
+  'awaiting_payment',
+  'sending',
+  'queued',
+  'printing',
+  'printed',
+  'failed',
+])
 
 function jobsRef(partnerId) {
   return db.collection('partners').doc(partnerId).collection('printJobs')
@@ -183,6 +190,9 @@ function mapJob(doc) {
     customerUid: data.customerUid || '',
     customerEmail: data.customerEmail || '',
     customerName: data.customerName || '',
+    paymentStatus: data.paymentStatus || '',
+    paymentIntentId: data.paymentIntentId || '',
+    paidAt: data.paidAt?.toDate?.()?.toISOString?.() || null,
     createdAt: data.createdAt?.toDate?.()?.toISOString?.() || null,
     updatedAt: data.updatedAt?.toDate?.()?.toISOString?.() || null,
   }
@@ -396,6 +406,7 @@ async function createCustomerPrintJob(req, res) {
     .join(' ')
     .trim()
   const orderNumber = await allocateOrderNumber(partnerId)
+  const needsPayment = Number(aggregates.totalPrice) >= 1
 
   const ref = jobsRef(partnerId).doc()
   const job = {
@@ -404,19 +415,26 @@ async function createCustomerPrintJob(req, res) {
     documents,
     printerName: '',
     deviceName: '',
-    status: 'queued',
-    rawStatus: 'Waiting for partner desktop',
+    status: needsPayment ? 'awaiting_payment' : 'queued',
+    rawStatus: needsPayment
+      ? 'Awaiting online payment'
+      : 'Waiting for partner desktop',
     source: 'mobile',
     customerUid: req.user.uid,
     customerEmail: req.profile?.email || req.user.email || '',
     customerName,
+    paymentStatus: needsPayment ? 'unpaid' : 'paid',
+    paymentIntentId: '',
     createdAt: FieldValue.serverTimestamp(),
     updatedAt: FieldValue.serverTimestamp(),
   }
 
   await ref.set(job)
   const snap = await ref.get()
-  res.status(201).json({ printJob: mapJob(snap) })
+  res.status(201).json({
+    printJob: mapJob(snap),
+    requiresPayment: needsPayment,
+  })
 }
 
 async function updatePrintJob(req, res) {

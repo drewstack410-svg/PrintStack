@@ -4,11 +4,20 @@ require('./firebaseAdmin')
 const express = require('express')
 const cors = require('cors')
 const { router } = require('./routes')
+const { handlePaymongoWebhook } = require('./controllers/paymentController')
 
 const app = express()
 const port = Number(process.env.PORT) || 3001
 
 app.use(cors({ origin: true }))
+
+// PayMongo webhook must use raw body for signature verification (before express.json)
+app.post(
+  '/api/payments/webhook',
+  express.raw({ type: 'application/json' }),
+  handlePaymongoWebhook,
+)
+
 app.use(express.json())
 
 app.get('/', (_req, res) => {

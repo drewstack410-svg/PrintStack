@@ -139,6 +139,48 @@ class ApiClient {
     );
   }
 
+  Future<Map<String, dynamic>> createPrintOrderPaymentIntent({
+    required String partnerId,
+    required String printJobId,
+  }) {
+    return _request(
+      'POST',
+      '/api/payments/print-order/intent',
+      body: {'partnerId': partnerId, 'printJobId': printJobId},
+    );
+  }
+
+  Future<Map<String, dynamic>> payPrintOrder({
+    required String paymentIntentId,
+    required String clientKey,
+    required String paymentMethodType,
+    required Map<String, dynamic> billing,
+    String? returnPath,
+  }) {
+    return _request(
+      'POST',
+      '/api/payments/print-order/pay',
+      body: {
+        'paymentIntentId': paymentIntentId,
+        'clientKey': clientKey,
+        'paymentMethodType': paymentMethodType,
+        'billing': billing,
+        if (returnPath != null && returnPath.trim().isNotEmpty)
+          'returnPath': returnPath.trim(),
+      },
+    );
+  }
+
+  Future<Map<String, dynamic>> finalizePrintOrderPayment(
+    String paymentIntentId,
+  ) {
+    return _request(
+      'POST',
+      '/api/payments/print-order/finalize',
+      body: {'paymentIntentId': paymentIntentId},
+    );
+  }
+
   @Deprecated('Use createCustomerPrintOrder with documents list')
   Future<Map<String, dynamic>> createCustomerPrintJob({
     required String partnerId,

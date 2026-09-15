@@ -114,6 +114,9 @@ function mapJob(docSnap) {
     customerUid: data.customerUid || '',
     customerEmail: data.customerEmail || '',
     customerName: data.customerName || '',
+    paymentStatus: data.paymentStatus || '',
+    paymentIntentId: data.paymentIntentId || '',
+    paidAt: toIso(data.paidAt),
     createdAt: toIso(data.createdAt),
     updatedAt: toIso(data.updatedAt),
   }

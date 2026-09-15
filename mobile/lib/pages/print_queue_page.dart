@@ -10,6 +10,7 @@ import '../models/partner.dart';
 import '../models/print_draft_document.dart';
 import '../theme.dart';
 import 'partner_order_page.dart';
+import 'print_order_payment_page.dart';
 
 /// Staging list of papers to print. Upload + order only happen when Print is tapped.
 class PrintQueuePage extends StatefulWidget {
@@ -111,12 +112,41 @@ class _PrintQueuePageState extends State<PrintQueuePage> {
         return;
       }
 
+      final printJob = result['printJob'] is Map
+          ? Map<String, dynamic>.from(result['printJob'] as Map)
+          : <String, dynamic>{};
       final orderNumber =
-          (result['printJob'] is Map
-                  ? (result['printJob'] as Map)['orderNumber']
-                  : result['orderNumber'])
-              ?.toString() ??
-          '';
+          (printJob['orderNumber'] ?? result['orderNumber'])?.toString() ?? '';
+      final printJobId = (printJob['id'] ?? '').toString();
+      final requiresPayment = result['requiresPayment'] == true;
+      final amountDisplay =
+          (printJob['totalPrice'] as num?)?.toStringAsFixed(2) ??
+          _orderTotal.toStringAsFixed(2);
+
+      if (requiresPayment && printJobId.isNotEmpty) {
+        setState(() => _printing = false);
+        final paid = await Navigator.of(context).push<bool>(
+          MaterialPageRoute(
+            builder: (_) => PrintOrderPaymentPage(
+              partner: widget.partner,
+              printJobId: printJobId,
+              orderNumber: orderNumber,
+              amountDisplay: amountDisplay,
+            ),
+          ),
+        );
+        if (!mounted) return;
+        if (paid == true) {
+          setState(() => _documents.clear());
+          Navigator.of(context).pop();
+        } else {
+          setState(() {
+            _error =
+                'Payment was not completed. Your order is held until you pay.';
+          });
+        }
+        return;
+      }
 
       final message = orderNumber.isEmpty
           ? 'Order submitted · ${_documents.length} document${_documents.length == 1 ? '' : 's'}.'
@@ -254,7 +284,7 @@ class _PrintQueuePageState extends State<PrintQueuePage> {
                         SizedBox(
                           width: 132,
                           child: GradientButton(
-                            label: 'Print',
+                            label: 'Pay & print',
                             busy: _printing,
                             onPressed: !_printing && _documents.isNotEmpty
                                 ? _print

@@ -39,6 +39,7 @@ import OrderDocumentsPage from './OrderDocumentsPage'
 
 const STATUS_FILTERS = [
   { value: 'all', label: 'All statuses' },
+  { value: 'awaiting_payment', label: 'Awaiting payment' },
   { value: 'queued', label: 'Queued' },
   { value: 'sending', label: 'Sending' },
   { value: 'printing', label: 'Printing' },

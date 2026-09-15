@@ -18,6 +18,7 @@ import PageHeader from '../components/dashboard/PageHeader'
 import { orderDocuments } from '../lib/printOrder'
 
 const STATUS_LABELS = {
+  awaiting_payment: 'Awaiting payment',
   sending: 'Sending',
   queued: 'Queued',
   printing: 'Printing',
@@ -26,6 +27,7 @@ const STATUS_LABELS = {
 }
 
 const STATUS_COLORS = {
+  awaiting_payment: 'default',
   sending: 'warning',
   queued: 'warning',
   printing: 'info',

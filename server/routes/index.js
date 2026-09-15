@@ -29,6 +29,7 @@ const {
   listPrintJobs,
   updatePrintJob,
 } = require('../controllers/printJobsController')
+const { paymentsRouter } = require('./payments')
 const { requireAdmin, requireAuth, requireSuperAdmin } = require('../middleware/auth')
 
 const upload = multer({
@@ -46,6 +47,7 @@ const upload = multer({
 const router = Router()
 
 router.get('/health', health)
+router.use('/payments', paymentsRouter)
 router.get('/me', requireAuth, me)
 router.patch('/me/location', requireAuth, requireAdmin, updateMyLocation)
 router.post('/geo/locate', requireAuth, locate)
