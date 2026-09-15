@@ -629,13 +629,21 @@ async function autocomplete(req, res) {
     const geoapifyKey = geoapifyApiKey()
     const errors = []
 
+    if (!googleKey && !geoapifyKey) {
+      res.status(502).json({
+        error:
+          'Place search is not configured. Set GOOGLE_MAPS_API_KEY (Places API New) or GEOAPIFY_API_KEY on the API server / Vercel env.',
+      })
+      return
+    }
+
     if (googleKey) {
       try {
         const results = await autocompleteWithPlaces(query, sessionToken, googleKey)
         res.json({ results, source: 'places' })
         return
       } catch (error) {
-        errors.push(error.message)
+        errors.push(`places: ${error.message}`)
         console.warn('[geo/autocomplete] Places API failed:', error.message)
       }
     }
@@ -646,13 +654,13 @@ async function autocomplete(req, res) {
         res.json({ results, source: 'geoapify' })
         return
       } catch (error) {
-        errors.push(error.message)
+        errors.push(`geoapify: ${error.message}`)
         console.warn('[geo/autocomplete] Geoapify failed:', error.message)
       }
     }
 
     res.status(502).json({
-      error: errors.join(' | ') || 'Place search is not configured on the server',
+      error: errors.join(' | ') || 'Place search failed',
     })
   } catch (error) {
     res.status(error.status || 500).json({
@@ -677,14 +685,32 @@ async function resolvePlace(req, res) {
       .toUpperCase() || 'PH'
 
     const googleKey = googleMapsApiKey()
-    if (!googleKey) {
-      res.status(502).json({ error: 'Google Maps is not configured on the server' })
+    const geoapifyKey = geoapifyApiKey()
+    if (!googleKey && !geoapifyKey) {
+      res.status(502).json({
+        error:
+          'Place resolve is not configured. Set GOOGLE_MAPS_API_KEY on the API server.',
+      })
       return
     }
 
     const errors = []
 
-    if (address) {
+    // Prefer Place Details — Address Validation does not support PH and many regions.
+    if (placeId && googleKey) {
+      try {
+        const details = await placeDetails(placeId, sessionToken, googleKey)
+        res.json({ place: details })
+        return
+      } catch (error) {
+        errors.push(`details: ${error.message}`)
+        console.warn('[geo/resolve-place] Place Details failed:', error.message)
+      }
+    }
+
+    // Address Validation only for supported regions (not PH).
+    const addressValidationUnsupported = new Set(['PH', 'CN', 'KR', 'JP'])
+    if (address && googleKey && !addressValidationUnsupported.has(regionCode)) {
       try {
         const validated = await validateAddressWithGoogle({
           address,
@@ -700,18 +726,7 @@ async function resolvePlace(req, res) {
       }
     }
 
-    if (placeId) {
-      try {
-        const details = await placeDetails(placeId, sessionToken, googleKey)
-        res.json({ place: details })
-        return
-      } catch (error) {
-        errors.push(`details: ${error.message}`)
-        console.warn('[geo/resolve-place] Place Details failed:', error.message)
-      }
-    }
-
-    // Last resort: if client already sent coords from Geoapify autocomplete.
+    // Last resort: coords already on the suggestion (e.g. Geoapify autocomplete).
     const lat = Number(req.body?.lat)
     const lng = Number(req.body?.lng)
     if (Number.isFinite(lat) && Number.isFinite(lng)) {

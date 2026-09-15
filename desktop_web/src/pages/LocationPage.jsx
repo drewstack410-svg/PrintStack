@@ -172,8 +172,8 @@ export default function LocationPage({
 
         {canEdit ? (
           <Alert severity="info" sx={{ py: 0 }}>
-            Search uses Google Places + Address Validation for an accurate shop pin.
-            You can still drag the pin to fine-tune.
+            Search uses Google Places for an accurate shop pin. You can still drag
+            the pin to fine-tune.
             {markers.length === 0 ? ' Click the map once to drop a pin.' : ''}
           </Alert>
         ) : null}

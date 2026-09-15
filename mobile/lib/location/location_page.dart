@@ -5,8 +5,11 @@ import 'package:geolocator/geolocator.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 
 import '../api/api_client.dart';
+import '../components/maps/map_theme_toggle_button.dart';
 import '../config.dart';
 import '../theme.dart';
+import '../utils/map_theme_controller.dart';
+import '../utils/map_theme_styles.dart';
 import 'animated_map_pin.dart';
 import 'location_place.dart';
 import 'location_search_bar.dart';
@@ -203,122 +206,143 @@ class _LocationPageState extends State<LocationPage> {
 
   @override
   Widget build(BuildContext context) {
-    return Stack(
-      children: [
-        GoogleMap(
-          initialCameraPosition: _initialCamera,
-          myLocationEnabled: false,
-          myLocationButtonEnabled: false,
-          zoomControlsEnabled: false,
-          compassEnabled: false,
-          mapToolbarEnabled: false,
-          onMapCreated: _onMapCreated,
-          onCameraMoveStarted: _onCameraMoveStarted,
-          onCameraMove: _onCameraMove,
-          onCameraIdle: _onCameraIdle,
-        ),
-        Align(
-          alignment: const Alignment(0, -0.04),
-          child: AnimatedMapPin(dragging: _dragging),
-        ),
-        Positioned(
-          top: 12,
-          left: 12,
-          right: 12,
-          child: LocationSearchBar(
-            onPlaceSelected: (place) {
-              unawaited(_goToPlace(place));
-            },
-          ),
-        ),
-        Positioned(
-          right: 16,
-          bottom: 132,
-          child: FloatingActionButton.small(
-            heroTag: 'location-my-location',
-            onPressed: _locating ? null : () => unawaited(_useMyLocation()),
-            backgroundColor: Colors.white,
-            foregroundColor: AppColors.purpleDark,
-            child: _locating
-                ? const SizedBox(
-                    width: 18,
-                    height: 18,
-                    child: CircularProgressIndicator(strokeWidth: 2),
-                  )
-                : const Icon(Icons.my_location_rounded),
-          ),
-        ),
-        Positioned(
-          left: 12,
-          right: 12,
-          bottom: 16,
-          child: Material(
-            elevation: 6,
-            shadowColor: AppColors.navy.withValues(alpha: 0.18),
-            borderRadius: BorderRadius.circular(16),
-            color: Colors.white,
-            child: Padding(
-              padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
+    return AnimatedBuilder(
+      animation: MapThemeController.instance,
+      builder: (context, _) {
+        final mapTheme = MapThemeController.instance;
+        return Stack(
+          children: [
+            GoogleMap(
+              key: ValueKey('location-map-${mapTheme.isDark}'),
+              mapId: AppConfig.cloudMapId.isEmpty ? null : AppConfig.cloudMapId,
+              colorScheme: mapTheme.colorScheme,
+              style: mapTheme.isDark
+                  ? MapThemeStyles.dark
+                  : MapThemeStyles.light,
+              initialCameraPosition: _initialCamera,
+              myLocationEnabled: false,
+              myLocationButtonEnabled: false,
+              zoomControlsEnabled: false,
+              compassEnabled: false,
+              mapToolbarEnabled: false,
+              trafficEnabled: true,
+              onMapCreated: _onMapCreated,
+              onCameraMoveStarted: _onCameraMoveStarted,
+              onCameraMove: _onCameraMove,
+              onCameraIdle: _onCameraIdle,
+            ),
+            Align(
+              alignment: const Alignment(0, -0.04),
+              child: AnimatedMapPin(dragging: _dragging),
+            ),
+            Positioned(
+              top: 12,
+              left: 12,
+              right: 12,
+              child: LocationSearchBar(
+                onPlaceSelected: (place) {
+                  unawaited(_goToPlace(place));
+                },
+              ),
+            ),
+            Positioned(
+              right: 16,
+              bottom: 132,
               child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  Row(
-                    children: [
-                      const Icon(
-                        Icons.place_rounded,
-                        color: AppColors.purpleDark,
-                        size: 20,
-                      ),
-                      const SizedBox(width: 8),
-                      Expanded(
-                        child: Text(
-                          _dragging
-                              ? 'Move the map to place the pin…'
-                              : (_resolvingLabel
-                                  ? 'Finding address…'
-                                  : (_label.isEmpty
-                                      ? 'Your selected location'
-                                      : _label)),
-                          maxLines: 3,
-                          overflow: TextOverflow.ellipsis,
-                          style: const TextStyle(
-                            fontWeight: FontWeight.w700,
-                            color: AppColors.navy,
-                            height: 1.25,
-                          ),
-                        ),
-                      ),
-                    ],
+                  const MapThemeToggleButton(heroTag: 'location-map-theme'),
+                  const SizedBox(height: 10),
+                  FloatingActionButton.small(
+                    heroTag: 'location-my-location',
+                    onPressed:
+                        _locating ? null : () => unawaited(_useMyLocation()),
+                    backgroundColor: Colors.white,
+                    foregroundColor: AppColors.purpleDark,
+                    child: _locating
+                        ? const SizedBox(
+                            width: 18,
+                            height: 18,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          )
+                        : const Icon(Icons.my_location_rounded),
                   ),
-                  const SizedBox(height: 6),
-                  Text(
-                    _dragging
-                        ? 'Release to drop the pin'
-                        : 'Drag the map to adjust the pin',
-                    style: const TextStyle(
-                      color: AppColors.muted,
-                      fontSize: 12,
-                      fontWeight: FontWeight.w600,
-                    ),
-                  ),
-                  if (_error != null) ...[
-                    const SizedBox(height: 8),
-                    Text(
-                      _error!,
-                      style: TextStyle(
-                        color: Colors.orange.shade800,
-                        fontSize: 12,
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
-                  ],
                 ],
               ),
             ),
-          ),
-        ),
-      ],
+            Positioned(
+              left: 12,
+              right: 12,
+              bottom: 16,
+              child: Material(
+                elevation: 6,
+                shadowColor: AppColors.navy.withValues(alpha: 0.18),
+                borderRadius: BorderRadius.circular(16),
+                color: Colors.white,
+                child: Padding(
+                  padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Row(
+                        children: [
+                          const Icon(
+                            Icons.place_rounded,
+                            color: AppColors.purpleDark,
+                            size: 20,
+                          ),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: Text(
+                              _dragging
+                                  ? 'Move the map to place the pin…'
+                                  : (_resolvingLabel
+                                      ? 'Finding address…'
+                                      : (_label.isEmpty
+                                          ? 'Your selected location'
+                                          : _label)),
+                              maxLines: 3,
+                              overflow: TextOverflow.ellipsis,
+                              style: const TextStyle(
+                                fontWeight: FontWeight.w700,
+                                color: AppColors.navy,
+                                height: 1.25,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 6),
+                      Text(
+                        _dragging
+                            ? 'Release to drop the pin'
+                            : 'Drag the map to adjust the pin',
+                        style: const TextStyle(
+                          color: AppColors.muted,
+                          fontSize: 12,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                      if (_error != null) ...[
+                        const SizedBox(height: 8),
+                        Text(
+                          _error!,
+                          style: TextStyle(
+                            color: Colors.orange.shade800,
+                            fontSize: 12,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ],
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          ],
+        );
+      },
     );
   }
 }

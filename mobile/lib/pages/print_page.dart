@@ -5,12 +5,15 @@ import 'package:geolocator/geolocator.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 
 import '../api/api_client.dart';
+import '../components/maps/map_theme_toggle_button.dart';
 import '../components/partners/partner_avatar.dart';
 import '../config.dart';
 import '../models/partner.dart';
 import '../services/partners_repository.dart';
 import '../theme.dart';
 import '../utils/directions_service.dart';
+import '../utils/map_theme_controller.dart';
+import '../utils/map_theme_styles.dart';
 import '../utils/partner_map_markers.dart';
 import 'shop_pricing_page.dart';
 
@@ -404,7 +407,11 @@ class _PrintPageState extends State<PrintPage> {
 
   @override
   Widget build(BuildContext context) {
-    return StreamBuilder<List<Partner>>(
+    return AnimatedBuilder(
+      animation: MapThemeController.instance,
+      builder: (context, _) {
+        final mapTheme = MapThemeController.instance;
+        return StreamBuilder<List<Partner>>(
       stream: _partnersStream,
       builder: (context, snapshot) {
         final all = snapshot.data ?? const <Partner>[];
@@ -447,6 +454,12 @@ class _PrintPageState extends State<PrintPage> {
           fit: StackFit.expand,
           children: [
             GoogleMap(
+              key: ValueKey('print-map-${mapTheme.isDark}'),
+              mapId: AppConfig.cloudMapId.isEmpty ? null : AppConfig.cloudMapId,
+              colorScheme: mapTheme.colorScheme,
+              style: mapTheme.isDark
+                  ? MapThemeStyles.dark
+                  : MapThemeStyles.light,
               initialCameraPosition: _philippines,
               myLocationEnabled: _myLocationEnabled,
               myLocationButtonEnabled: false,
@@ -516,12 +529,19 @@ class _PrintPageState extends State<PrintPage> {
             Positioned(
               right: 14,
               bottom: mappable.isEmpty ? 24 : 156,
-              child: FloatingActionButton.small(
-                heroTag: 'print-my-location',
-                backgroundColor: Colors.white,
-                foregroundColor: AppColors.purpleDark,
-                onPressed: _goToMyLocation,
-                child: const Icon(Icons.my_location),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const MapThemeToggleButton(heroTag: 'print-map-theme'),
+                  const SizedBox(height: 10),
+                  FloatingActionButton.small(
+                    heroTag: 'print-my-location',
+                    backgroundColor: Colors.white,
+                    foregroundColor: AppColors.purpleDark,
+                    onPressed: _goToMyLocation,
+                    child: const Icon(Icons.my_location),
+                  ),
+                ],
               ),
             ),
             if (snapshot.connectionState == ConnectionState.waiting &&
@@ -578,6 +598,8 @@ class _PrintPageState extends State<PrintPage> {
                 ),
               ),
           ],
+        );
+      },
         );
       },
     );
