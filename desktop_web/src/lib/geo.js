@@ -2,6 +2,7 @@ import {
   autocompleteLocationViaApi,
   fetchRouteViaApi,
   locateViaApi,
+  resolvePlaceViaApi,
   reverseGeocodeViaApi,
 } from '../api'
 
@@ -12,6 +13,13 @@ export const GOOGLE_MAPS_API_KEY = import.meta.env.VITE_GOOGLE_MAPS_API_KEY || '
 export const GOOD_ACCURACY_M = 100
 /** Coarser than this is treated as unusable for overwriting a known shop pin. */
 export const MAX_ACCEPTABLE_ACCURACY_M = 500
+
+export function createPlacesSessionToken() {
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+    return crypto.randomUUID()
+  }
+  return `ps-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`
+}
 
 function toCoords(position, source = 'device') {
   return {
@@ -108,7 +116,6 @@ export async function locateWithApi(idToken) {
     latitude,
     longitude,
     label: location.label || '',
-    // IP / cell tower locate is typically kilometers off.
     accuracy: 50_000,
     source: 'network',
   }
@@ -128,15 +135,48 @@ export async function reverseGeocode(lat, lng, idToken) {
   }
 }
 
-/** Place autocomplete through PrintStack API (Geoapify). */
-export async function searchLocations(query, idToken) {
+/** Places API (New) autocomplete through PrintStack API. */
+export async function searchLocations(query, idToken, sessionToken = '') {
   const text = String(query || '').trim()
   if (!idToken || text.length < 2) {
     return []
   }
 
-  const payload = await autocompleteLocationViaApi(idToken, text)
+  const payload = await autocompleteLocationViaApi(idToken, text, sessionToken)
   return Array.isArray(payload.results) ? payload.results : []
+}
+
+/**
+ * Resolve a Places suggestion with Address Validation (preferred),
+ * falling back to Place Details.
+ */
+export async function resolvePlace(
+  idToken,
+  { placeId = '', address = '', sessionToken = '', lat, lng } = {},
+) {
+  const payload = await resolvePlaceViaApi(idToken, {
+    placeId,
+    address,
+    sessionToken,
+    lat,
+    lng,
+    regionCode: 'PH',
+  })
+  const place = payload.place || {}
+  const resolvedLat = Number(place.lat)
+  const resolvedLng = Number(place.lng)
+  if (!Number.isFinite(resolvedLat) || !Number.isFinite(resolvedLng)) {
+    throw new Error('Could not resolve this place')
+  }
+  return {
+    lat: resolvedLat,
+    lng: resolvedLng,
+    label: String(place.label || address || ''),
+    placeId: String(place.placeId || placeId || ''),
+    validated: Boolean(place.validated),
+    source: String(place.source || ''),
+    verdict: place.verdict || null,
+  }
 }
 
 /** Driving route through PrintStack API. */
@@ -148,11 +188,13 @@ export async function fetchRoute(idToken, origin, destination) {
     toLng: destination.lng ?? destination.longitude,
   })
 
-  return payload.route || {
-    points: [],
-    distanceText: '',
-    durationText: '',
-  }
+  return (
+    payload.route || {
+      points: [],
+      distanceText: '',
+      durationText: '',
+    }
+  )
 }
 
 export function isAccurateEnough(coords, maxAccuracyM = MAX_ACCEPTABLE_ACCURACY_M) {
@@ -161,7 +203,6 @@ export function isAccurateEnough(coords, maxAccuracyM = MAX_ACCEPTABLE_ACCURACY_
   }
   const accuracy = Number(coords.accuracy)
   if (!Number.isFinite(accuracy)) {
-    // Device sometimes omits accuracy — treat as usable only for device source.
     return coords.source === 'device' || coords.source === 'manual'
   }
   return accuracy <= maxAccuracyM

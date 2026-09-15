@@ -22,7 +22,7 @@ const {
   updatePaperSize,
 } = require('../controllers/paperSizesController')
 const { updateMyLocation } = require('../controllers/locationController')
-const { locate, reverse, autocomplete, route } = require('../controllers/geoController')
+const { locate, reverse, autocomplete, resolvePlace, route } = require('../controllers/geoController')
 const {
   createPrintJob,
   createCustomerPrintJob,
@@ -53,6 +53,7 @@ router.patch('/me/location', requireAuth, requireAdmin, updateMyLocation)
 router.post('/geo/locate', requireAuth, locate)
 router.get('/geo/reverse', requireAuth, reverse)
 router.get('/geo/autocomplete', requireAuth, autocomplete)
+router.post('/geo/resolve-place', requireAuth, resolvePlace)
 router.get('/geo/route', requireAuth, route)
 router.get('/partners', requireAuth, listPartners)
 router.post(

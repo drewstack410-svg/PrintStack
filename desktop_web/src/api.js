@@ -192,11 +192,22 @@ export function reverseGeocodeViaApi(idToken, lat, lng) {
   return authorizedJson(`/api/geo/reverse?${params}`, idToken)
 }
 
-export function autocompleteLocationViaApi(idToken, query) {
+export function autocompleteLocationViaApi(idToken, query, sessionToken = '') {
   const params = new URLSearchParams({
     q: String(query || ''),
   })
+  if (sessionToken) {
+    params.set('sessionToken', String(sessionToken))
+  }
   return authorizedJson(`/api/geo/autocomplete?${params}`, idToken)
+}
+
+export function resolvePlaceViaApi(idToken, body) {
+  return authorizedJson('/api/geo/resolve-place', idToken, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body || {}),
+  })
 }
 
 export function fetchRouteViaApi(idToken, { fromLat, fromLng, toLat, toLng }) {

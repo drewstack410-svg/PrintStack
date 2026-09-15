@@ -12,7 +12,7 @@ import {
   TextField,
 } from '@mui/material'
 import { useAuth } from '../../auth/AuthProvider'
-import { searchLocations } from '../../lib/geo'
+import { createPlacesSessionToken, resolvePlace, searchLocations } from '../../lib/geo'
 
 const DEBOUNCE_MS = 280
 
@@ -20,10 +20,12 @@ export default function LocationSearchBar({ onSelect, disabled = false }) {
   const { user } = useAuth()
   const listId = useId()
   const requestId = useRef(0)
+  const sessionTokenRef = useRef(createPlacesSessionToken())
   const [query, setQuery] = useState('')
   const [results, setResults] = useState([])
   const [open, setOpen] = useState(false)
   const [loading, setLoading] = useState(false)
+  const [resolving, setResolving] = useState(false)
   const [error, setError] = useState('')
 
   useEffect(() => {
@@ -41,7 +43,7 @@ export default function LocationSearchBar({ onSelect, disabled = false }) {
       setError('')
       try {
         const token = await user.getIdToken()
-        const next = await searchLocations(text, token)
+        const next = await searchLocations(text, token, sessionTokenRef.current)
         if (currentRequest !== requestId.current) {
           return
         }
@@ -66,12 +68,38 @@ export default function LocationSearchBar({ onSelect, disabled = false }) {
     }
   }, [query, user])
 
-  function handleSelect(item) {
+  async function handleSelect(item) {
+    if (!user || resolving) {
+      return
+    }
+
     setQuery(item.label || '')
     setOpen(false)
     setResults([])
-    onSelect?.(item)
+    setResolving(true)
+    setError('')
+
+    try {
+      const token = await user.getIdToken()
+      const place = await resolvePlace(token, {
+        placeId: item.placeId || item.id || '',
+        address: item.label || '',
+        sessionToken: item.sessionToken || sessionTokenRef.current,
+        lat: item.lat,
+        lng: item.lng,
+      })
+      // Start a fresh autocomplete billing session after resolve.
+      sessionTokenRef.current = createPlacesSessionToken()
+      onSelect?.(place)
+    } catch (err) {
+      setError(err.message || 'Could not validate this address')
+      setOpen(true)
+    } finally {
+      setResolving(false)
+    }
   }
+
+  const busy = loading || resolving
 
   return (
     <ClickAwayListener onClickAway={() => setOpen(false)}>
@@ -80,9 +108,14 @@ export default function LocationSearchBar({ onSelect, disabled = false }) {
           size="small"
           fullWidth
           value={query}
-          disabled={disabled}
-          placeholder="Search address or place…"
-          onChange={(event) => setQuery(event.target.value)}
+          disabled={disabled || resolving}
+          placeholder="Search shop address (Places)…"
+          onChange={(event) => {
+            if (!sessionTokenRef.current) {
+              sessionTokenRef.current = createPlacesSessionToken()
+            }
+            setQuery(event.target.value)
+          }}
           onFocus={() => {
             if (results.length || error) {
               setOpen(true)
@@ -98,7 +131,7 @@ export default function LocationSearchBar({ onSelect, disabled = false }) {
                   <SearchIcon fontSize="small" />
                 </InputAdornment>
               ),
-              endAdornment: loading ? (
+              endAdornment: busy ? (
                 <InputAdornment position="end">
                   <CircularProgress size={16} />
                 </InputAdornment>
@@ -128,8 +161,9 @@ export default function LocationSearchBar({ onSelect, disabled = false }) {
               <List id={listId} dense disablePadding role="listbox">
                 {results.map((item) => (
                   <ListItemButton
-                    key={item.id}
+                    key={item.id || item.placeId || item.label}
                     role="option"
+                    disabled={resolving}
                     onClick={() => handleSelect(item)}
                   >
                     <ListItemText

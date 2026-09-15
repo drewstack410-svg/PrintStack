@@ -88,6 +88,9 @@ export default function LocationPage({
         lng: place.lng,
         label: place.label,
       })
+      if (place.validated) {
+        setPinError('')
+      }
     },
     [canEdit, handleLocationPick],
   )
@@ -169,7 +172,8 @@ export default function LocationPage({
 
         {canEdit ? (
           <Alert severity="info" sx={{ py: 0 }}>
-            Search for your shop, use my location, or drag the pin — it lifts while you move it.
+            Search uses Google Places + Address Validation for an accurate shop pin.
+            You can still drag the pin to fine-tune.
             {markers.length === 0 ? ' Click the map once to drop a pin.' : ''}
           </Alert>
         ) : null}

@@ -400,6 +400,222 @@ async function reverse(req, res) {
   }
 }
 
+async function autocompleteWithPlaces(query, sessionToken, apiKey) {
+  const countryCodes = String(geoapifyCountryCodes() || 'ph')
+    .toLowerCase()
+    .split(',')
+    .map((code) => code.trim())
+    .filter(Boolean)
+
+  const body = {
+    input: query,
+    languageCode: 'en',
+    includeQueryPredictions: false,
+  }
+  if (countryCodes.length) {
+    body.includedRegionCodes = countryCodes
+  }
+  if (sessionToken) {
+    body.sessionToken = sessionToken
+  }
+
+  const response = await fetch('https://places.googleapis.com/v1/places:autocomplete', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'X-Goog-Api-Key': apiKey,
+      'X-Goog-FieldMask':
+        'suggestions.placePrediction.placeId,suggestions.placePrediction.text,suggestions.placePrediction.structuredFormat',
+    },
+    body: JSON.stringify(body),
+  })
+  const payload = await response.json()
+  if (!response.ok) {
+    throw new Error(payload.error?.message || `Places autocomplete HTTP ${response.status}`)
+  }
+
+  return (payload.suggestions || [])
+    .map((suggestion) => {
+      const prediction = suggestion.placePrediction
+      if (!prediction?.placeId) {
+        return null
+      }
+      const main = prediction.structuredFormat?.mainText?.text || ''
+      const secondary = prediction.structuredFormat?.secondaryText?.text || ''
+      const label =
+        prediction.text?.text ||
+        [main, secondary].filter(Boolean).join(', ') ||
+        prediction.placeId
+      return {
+        id: prediction.placeId,
+        placeId: prediction.placeId,
+        label,
+        sessionToken: sessionToken || '',
+        source: 'places',
+      }
+    })
+    .filter(Boolean)
+}
+
+async function autocompleteWithGeoapify(query, apiKey) {
+  const countryCodes = String(geoapifyCountryCodes()).toLowerCase()
+  const params = new URLSearchParams({
+    text: query,
+    apiKey,
+    limit: '8',
+    lang: 'en',
+  })
+  if (countryCodes) {
+    params.set('filter', `countrycode:${countryCodes}`)
+  }
+
+  const response = await fetch(
+    `https://api.geoapify.com/v1/geocode/autocomplete?${params}`,
+  )
+  const payload = await response.json()
+  if (!response.ok) {
+    throw new Error(payload.message || 'Geoapify autocomplete failed')
+  }
+
+  return (payload.features || [])
+    .map((feature) => {
+      const properties = feature.properties || {}
+      const [lng, lat] = feature.geometry?.coordinates || []
+      const parsedLat = Number(lat)
+      const parsedLng = Number(lng)
+      if (!Number.isFinite(parsedLat) || !Number.isFinite(parsedLng)) {
+        return null
+      }
+      return {
+        id: properties.place_id || `${parsedLat},${parsedLng}`,
+        placeId: properties.place_id || '',
+        label: featureLabel(properties),
+        lat: parsedLat,
+        lng: parsedLng,
+        source: 'geoapify',
+      }
+    })
+    .filter(Boolean)
+}
+
+function normalizePlaceId(placeId) {
+  return String(placeId || '')
+    .trim()
+    .replace(/^places\//, '')
+}
+
+async function placeDetails(placeId, sessionToken, apiKey) {
+  const id = normalizePlaceId(placeId)
+  if (!id) {
+    throw Object.assign(new Error('placeId is required'), { status: 400 })
+  }
+
+  const params = new URLSearchParams()
+  if (sessionToken) {
+    params.set('sessionToken', sessionToken)
+  }
+  const qs = params.toString()
+  const response = await fetch(
+    `https://places.googleapis.com/v1/places/${encodeURIComponent(id)}${qs ? `?${qs}` : ''}`,
+    {
+      headers: {
+        'X-Goog-Api-Key': apiKey,
+        'X-Goog-FieldMask': 'id,formattedAddress,displayName,location',
+      },
+    },
+  )
+  const payload = await response.json()
+  if (!response.ok) {
+    throw new Error(payload.error?.message || `Place details HTTP ${response.status}`)
+  }
+
+  const lat = Number(payload.location?.latitude)
+  const lng = Number(payload.location?.longitude)
+  if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
+    throw new Error('Place details returned no coordinates')
+  }
+
+  return {
+    lat,
+    lng,
+    label:
+      payload.formattedAddress ||
+      payload.displayName?.text ||
+      id,
+    placeId: normalizePlaceId(payload.id) || id,
+    source: 'places_details',
+    validated: false,
+  }
+}
+
+async function validateAddressWithGoogle({ address, regionCode, sessionToken, apiKey }) {
+  const lines = Array.isArray(address)
+    ? address.map((line) => String(line || '').trim()).filter(Boolean)
+    : [String(address || '').trim()].filter(Boolean)
+
+  if (!lines.length) {
+    throw Object.assign(new Error('Address is required'), { status: 400 })
+  }
+
+  const body = {
+    address: {
+      regionCode: String(regionCode || 'PH').toUpperCase(),
+      addressLines: lines,
+    },
+  }
+  if (sessionToken) {
+    body.sessionToken = sessionToken
+  }
+
+  const response = await fetch(
+    'https://addressvalidation.googleapis.com/v1:validateAddress',
+    {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Goog-Api-Key': apiKey,
+      },
+      body: JSON.stringify(body),
+    },
+  )
+  const payload = await response.json()
+  if (!response.ok) {
+    throw new Error(
+      payload.error?.message || `Address validation HTTP ${response.status}`,
+    )
+  }
+
+  const result = payload.result || {}
+  const geocode = result.geocode || {}
+  const lat = Number(geocode.location?.latitude)
+  const lng = Number(geocode.location?.longitude)
+  if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
+    throw new Error('Address validation returned no coordinates')
+  }
+
+  const verdict = result.verdict || {}
+  const label =
+    result.address?.formattedAddress ||
+    lines.join(', ')
+
+  return {
+    lat,
+    lng,
+    label,
+    placeId: geocode.placeId || '',
+    source: 'address_validation',
+    validated: true,
+    verdict: {
+      inputGranularity: verdict.inputGranularity || '',
+      validationGranularity: verdict.validationGranularity || '',
+      geocodeGranularity: verdict.geocodeGranularity || '',
+      addressComplete: Boolean(verdict.addressComplete),
+      hasUnconfirmedComponents: Boolean(verdict.hasUnconfirmedComponents),
+      hasInferredComponents: Boolean(verdict.hasInferredComponents),
+    },
+  }
+}
+
 async function autocomplete(req, res) {
   try {
     const query = String(req.query.q || req.query.text || '').trim()
@@ -408,53 +624,116 @@ async function autocomplete(req, res) {
       return
     }
 
-    const apiKey = geoapifyApiKey()
-    if (!apiKey) {
-      res.status(502).json({ error: 'Geocoding is not configured on the server' })
-      return
+    const sessionToken = String(req.query.sessionToken || req.body?.sessionToken || '').trim()
+    const googleKey = googleMapsApiKey()
+    const geoapifyKey = geoapifyApiKey()
+    const errors = []
+
+    if (googleKey) {
+      try {
+        const results = await autocompleteWithPlaces(query, sessionToken, googleKey)
+        res.json({ results, source: 'places' })
+        return
+      } catch (error) {
+        errors.push(error.message)
+        console.warn('[geo/autocomplete] Places API failed:', error.message)
+      }
     }
 
-    const countryCodes = String(geoapifyCountryCodes()).toLowerCase()
-    const params = new URLSearchParams({
-      text: query,
-      apiKey,
-      limit: '8',
-      lang: 'en',
+    if (geoapifyKey) {
+      try {
+        const results = await autocompleteWithGeoapify(query, geoapifyKey)
+        res.json({ results, source: 'geoapify' })
+        return
+      } catch (error) {
+        errors.push(error.message)
+        console.warn('[geo/autocomplete] Geoapify failed:', error.message)
+      }
+    }
+
+    res.status(502).json({
+      error: errors.join(' | ') || 'Place search is not configured on the server',
     })
-    if (countryCodes) {
-      params.set('filter', `countrycode:${countryCodes}`)
-    }
-
-    const response = await fetch(
-      `https://api.geoapify.com/v1/geocode/autocomplete?${params}`,
-    )
-    const payload = await response.json()
-    if (!response.ok) {
-      throw new Error(payload.message || 'Autocomplete failed')
-    }
-
-    const results = (payload.features || [])
-      .map((feature) => {
-        const properties = feature.properties || {}
-        const [lng, lat] = feature.geometry?.coordinates || []
-        const parsedLat = Number(lat)
-        const parsedLng = Number(lng)
-        if (!Number.isFinite(parsedLat) || !Number.isFinite(parsedLng)) {
-          return null
-        }
-        return {
-          id: properties.place_id || `${parsedLat},${parsedLng}`,
-          label: featureLabel(properties),
-          lat: parsedLat,
-          lng: parsedLng,
-        }
-      })
-      .filter(Boolean)
-
-    res.json({ results })
   } catch (error) {
     res.status(error.status || 500).json({
       error: error.message || 'Autocomplete failed',
+    })
+  }
+}
+
+/** Resolve a Places suggestion into validated coordinates. */
+async function resolvePlace(req, res) {
+  try {
+    const placeId = String(req.body?.placeId || req.query.placeId || '').trim()
+    const address = String(req.body?.address || req.query.address || '').trim()
+    const sessionToken = String(
+      req.body?.sessionToken || req.query.sessionToken || '',
+    ).trim()
+    const regionCode = String(
+      req.body?.regionCode || geoapifyCountryCodes() || 'ph',
+    )
+      .split(',')[0]
+      .trim()
+      .toUpperCase() || 'PH'
+
+    const googleKey = googleMapsApiKey()
+    if (!googleKey) {
+      res.status(502).json({ error: 'Google Maps is not configured on the server' })
+      return
+    }
+
+    const errors = []
+
+    if (address) {
+      try {
+        const validated = await validateAddressWithGoogle({
+          address,
+          regionCode,
+          sessionToken,
+          apiKey: googleKey,
+        })
+        res.json({ place: validated })
+        return
+      } catch (error) {
+        errors.push(`validation: ${error.message}`)
+        console.warn('[geo/resolve-place] Address Validation failed:', error.message)
+      }
+    }
+
+    if (placeId) {
+      try {
+        const details = await placeDetails(placeId, sessionToken, googleKey)
+        res.json({ place: details })
+        return
+      } catch (error) {
+        errors.push(`details: ${error.message}`)
+        console.warn('[geo/resolve-place] Place Details failed:', error.message)
+      }
+    }
+
+    // Last resort: if client already sent coords from Geoapify autocomplete.
+    const lat = Number(req.body?.lat)
+    const lng = Number(req.body?.lng)
+    if (Number.isFinite(lat) && Number.isFinite(lng)) {
+      res.json({
+        place: {
+          lat,
+          lng,
+          label: address || `${lat.toFixed(5)}, ${lng.toFixed(5)}`,
+          placeId,
+          source: 'client',
+          validated: false,
+        },
+      })
+      return
+    }
+
+    res.status(502).json({
+      error: errors.join(' | ') || 'Could not resolve this place',
+    })
+  } catch (error) {
+    res.status(error.status || 500).json({
+      error: error.message || 'Could not resolve place',
     })
   }
 }
@@ -526,5 +805,6 @@ module.exports = {
   locate,
   reverse,
   autocomplete,
+  resolvePlace,
   route,
 }
