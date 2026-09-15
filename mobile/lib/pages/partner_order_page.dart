@@ -1,21 +1,28 @@
-import 'dart:io';
 import 'dart:math' as math;
 
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:pdfrx/pdfrx.dart';
 
-import '../api/api_client.dart';
 import '../components/buttons/gradient_button.dart';
 import '../components/common/message_banner.dart';
 import '../models/partner.dart';
+import '../models/print_draft_document.dart';
 import '../theme.dart';
 import '../utils/pdf_pages.dart';
+import 'print_queue_page.dart';
 
 class PartnerOrderPage extends StatefulWidget {
-  const PartnerOrderPage({super.key, required this.partner});
+  const PartnerOrderPage({
+    super.key,
+    required this.partner,
+    this.returnDocumentOnly = false,
+  });
 
   final Partner partner;
+
+  /// When true (opened from the print queue), Continue pops with the draft doc.
+  final bool returnDocumentOnly;
 
   @override
   State<PartnerOrderPage> createState() => _PartnerOrderPageState();
@@ -23,36 +30,7 @@ class PartnerOrderPage extends StatefulWidget {
 
 enum _PageInkFilter { all, bw, color }
 
-class _OrderDraftDoc {
-  const _OrderDraftDoc({
-    required this.path,
-    required this.fileName,
-    required this.paperSize,
-    required this.copies,
-    required this.bwPages,
-    required this.colorPages,
-    required this.pageIsColor,
-  });
-
-  final String path;
-  final String fileName;
-  final PaperSize paperSize;
-  final int copies;
-  final int bwPages;
-  final int colorPages;
-  final List<bool> pageIsColor;
-
-  int get totalPages => bwPages + colorPages;
-
-  double get lineTotal {
-    final bw = bwPages * copies * paperSize.priceBw;
-    final color = colorPages * copies * paperSize.priceColor;
-    return bw + color;
-  }
-}
-
 class _PartnerOrderPageState extends State<PartnerOrderPage> {
-  final List<_OrderDraftDoc> _orderDocs = [];
   PlatformFile? _picked;
   PaperSize? _selectedSize;
   int _copies = 1;
@@ -62,7 +40,6 @@ class _PartnerOrderPageState extends State<PartnerOrderPage> {
   _PageInkFilter _pageFilter = _PageInkFilter.all;
   bool _layoutFromPdf = false;
   bool _readingPdf = false;
-  bool _submitting = false;
   String? _error;
   String? _success;
 
@@ -77,12 +54,7 @@ class _PartnerOrderPageState extends State<PartnerOrderPage> {
   double get _colorSubtotal => _colorPages * _copies * _colorUnit;
   double get _currentTotal => _bwSubtotal + _colorSubtotal;
 
-  double get _orderTotal =>
-      _orderDocs.fold<double>(0, (sum, doc) => sum + doc.lineTotal) +
-      (_canAddCurrent ? _currentTotal : 0);
-
-  bool get _canAddCurrent =>
-      !_submitting &&
+  bool get _canContinue =>
       !_readingPdf &&
       _picked != null &&
       (_picked!.path ?? '').isNotEmpty &&
@@ -90,25 +62,6 @@ class _PartnerOrderPageState extends State<PartnerOrderPage> {
       _selectedSize != null &&
       _totalPages > 0 &&
       _sizes.isNotEmpty;
-
-  bool get _canPrint =>
-      !_submitting &&
-      !_readingPdf &&
-      _sizes.isNotEmpty &&
-      (_orderDocs.isNotEmpty || _canAddCurrent);
-
-  String get _pageBreakdown {
-    if (_colorPages > 0 && _bwPages > 0) {
-      return '$_bwPages B&W · $_colorPages color';
-    }
-    if (_colorPages > 0) {
-      return '$_colorPages color page${_colorPages == 1 ? '' : 's'}';
-    }
-    if (_bwPages > 0) {
-      return '$_bwPages B&W page${_bwPages == 1 ? '' : 's'}';
-    }
-    return 'No pages detected';
-  }
 
   void _resetDetection() {
     _bwPages = 0;
@@ -222,113 +175,50 @@ class _PartnerOrderPageState extends State<PartnerOrderPage> {
     });
   }
 
-  bool _addCurrentToOrder() {
+  PrintDraftDocument? _buildCurrentDraft() {
     final size = _selectedSize;
     final picked = _picked;
     final path = picked?.path;
-    if (!_canAddCurrent || size == null || picked == null || path == null) {
-      return false;
+    if (!_canContinue || size == null || picked == null || path == null) {
+      return null;
     }
 
-    _orderDocs.add(
-      _OrderDraftDoc(
-        path: path,
-        fileName: picked.name,
-        paperSize: size,
-        copies: _copies,
-        bwPages: _bwPages,
-        colorPages: _colorPages,
-        pageIsColor: List<bool>.from(_pageIsColor),
-      ),
+    return PrintDraftDocument(
+      path: path,
+      fileName: picked.name,
+      paperSize: size,
+      copies: _copies,
+      bwPages: _bwPages,
+      colorPages: _colorPages,
+      pageIsColor: List<bool>.from(_pageIsColor),
     );
-    _picked = null;
-    _copies = 1;
-    _resetDetection();
-    return true;
   }
 
-  void _removeOrderDoc(int index) {
-    setState(() {
-      if (index >= 0 && index < _orderDocs.length) {
-        _orderDocs.removeAt(index);
-      }
-    });
-  }
-
-  Future<void> _submit() async {
-    if (_canAddCurrent) {
-      _addCurrentToOrder();
-    }
-
-    if (_orderDocs.isEmpty) {
-      setState(() => _error = 'Add at least one document to the order.');
+  void _continueToQueue() {
+    final draft = _buildCurrentDraft();
+    if (draft == null) {
+      setState(() => _error = 'Choose a document first.');
       return;
     }
 
     setState(() {
-      _submitting = true;
       _error = null;
       _success = null;
     });
 
-    try {
-      final payloads = <Map<String, dynamic>>[];
-      for (final doc in _orderDocs) {
-        final upload = await ApiClient.instance.uploadPrintPdf(
-          partnerId: widget.partner.id,
-          file: File(doc.path),
-          fileName: doc.fileName,
-        );
-        payloads.add({
-          'documentName': doc.fileName,
-          'fileUrl': upload.fileUrl,
-          'filePath': upload.filePath,
-          'paperSizeId': doc.paperSize.id,
-          'copies': doc.copies,
-          'pages': doc.totalPages,
-          'bwPages': doc.bwPages,
-          'colorPages': doc.colorPages,
-        });
-      }
-
-      final result = await ApiClient.instance.createCustomerPrintOrder(
-        partnerId: widget.partner.id,
-        documents: payloads,
-      );
-
-      if (!mounted) {
-        return;
-      }
-
-      final orderNumber =
-          (result['printJob'] is Map
-                  ? (result['printJob'] as Map)['orderNumber']
-                  : result['orderNumber'])
-              ?.toString() ??
-          '';
-
-      setState(() {
-        _success = orderNumber.isEmpty
-            ? 'Order submitted with ${_orderDocs.length} document${_orderDocs.length == 1 ? '' : 's'}.'
-            : 'Order #$orderNumber submitted · ${_orderDocs.length} document${_orderDocs.length == 1 ? '' : 's'}.';
-        _orderDocs.clear();
-        _picked = null;
-        _copies = 1;
-        _resetDetection();
-      });
-    } on ApiException catch (error) {
-      if (mounted) {
-        setState(() => _error = error.message);
-      }
-    } catch (error) {
-      if (mounted) {
-        setState(() => _error = error.toString());
-      }
-    } finally {
-      if (mounted) {
-        setState(() => _submitting = false);
-      }
+    if (widget.returnDocumentOnly) {
+      Navigator.of(context).pop(draft);
+      return;
     }
+
+    Navigator.of(context).pushReplacement(
+      MaterialPageRoute<void>(
+        builder: (_) => PrintQueuePage(
+          partner: widget.partner,
+          documents: [draft],
+        ),
+      ),
+    );
   }
 
   @override
@@ -369,20 +259,15 @@ class _PartnerOrderPageState extends State<PartnerOrderPage> {
                           onFilterBw: () => _togglePageFilter(_PageInkFilter.bw),
                           onFilterColor: () =>
                               _togglePageFilter(_PageInkFilter.color),
-                          onChange:
-                              _submitting || _readingPdf ? null : _pickPdf,
-                          onClear:
-                              _submitting || _readingPdf ? null : _clearDocument,
+                          onChange: _readingPdf ? null : _pickPdf,
+                          onClear: _readingPdf ? null : _clearDocument,
                         )
                       : Padding(
                           padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
                           child: _BigUploadButton(
-                            busy: _readingPdf || _submitting,
-                            label: _orderDocs.isEmpty
-                                ? 'Upload document'
-                                : 'Add another document',
-                            onTap:
-                                _submitting || _readingPdf ? null : _pickPdf,
+                            busy: _readingPdf,
+                            label: 'Choose document',
+                            onTap: _readingPdf ? null : _pickPdf,
                           ),
                         ),
                 ),
@@ -414,32 +299,6 @@ class _PartnerOrderPageState extends State<PartnerOrderPage> {
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    if (_orderDocs.isNotEmpty) ...[
-                      SizedBox(
-                        height: 40,
-                        child: ListView.separated(
-                          scrollDirection: Axis.horizontal,
-                          itemCount: _orderDocs.length,
-                          separatorBuilder: (_, _) => const SizedBox(width: 8),
-                          itemBuilder: (context, index) {
-                            final doc = _orderDocs[index];
-                            return InputChip(
-                              label: Text(
-                                doc.fileName,
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                              ),
-                              onDeleted: _submitting
-                                  ? null
-                                  : () => _removeOrderDoc(index),
-                              deleteIconColor: AppColors.muted,
-                              backgroundColor: AppColors.mist,
-                            );
-                          },
-                        ),
-                      ),
-                      const SizedBox(height: 10),
-                    ],
                     if (_picked != null) ...[
                       Container(
                         padding: const EdgeInsets.symmetric(
@@ -466,7 +325,7 @@ class _PartnerOrderPageState extends State<PartnerOrderPage> {
                             const Spacer(),
                             IconButton(
                               visualDensity: VisualDensity.compact,
-                              onPressed: _submitting || _copies <= 1
+                              onPressed: _copies <= 1
                                   ? null
                                   : () => setState(() => _copies -= 1),
                               icon: const Icon(Icons.remove_circle_outline),
@@ -485,7 +344,7 @@ class _PartnerOrderPageState extends State<PartnerOrderPage> {
                             ),
                             IconButton(
                               visualDensity: VisualDensity.compact,
-                              onPressed: _submitting || _copies >= 50
+                              onPressed: _copies >= 50
                                   ? null
                                   : () => setState(() => _copies += 1),
                               icon: const Icon(Icons.add_circle_outline),
@@ -502,11 +361,9 @@ class _PartnerOrderPageState extends State<PartnerOrderPage> {
                             crossAxisAlignment: CrossAxisAlignment.start,
                             mainAxisSize: MainAxisSize.min,
                             children: [
-                              Text(
-                                _orderDocs.isEmpty
-                                    ? 'Estimated total'
-                                    : 'Order · ${_orderDocs.length + (_canAddCurrent ? 1 : 0)} doc${(_orderDocs.length + (_canAddCurrent ? 1 : 0)) == 1 ? '' : 's'}',
-                                style: const TextStyle(
+                              const Text(
+                                'Estimated total',
+                                style: TextStyle(
                                   color: AppColors.muted,
                                   fontSize: 12,
                                   fontWeight: FontWeight.w600,
@@ -514,7 +371,7 @@ class _PartnerOrderPageState extends State<PartnerOrderPage> {
                               ),
                               const SizedBox(height: 2),
                               Text(
-                                '₱${_orderTotal.toStringAsFixed(2)}',
+                                '₱${_currentTotal.toStringAsFixed(2)}',
                                 style: const TextStyle(
                                   fontSize: 22,
                                   fontWeight: FontWeight.w800,
@@ -524,28 +381,13 @@ class _PartnerOrderPageState extends State<PartnerOrderPage> {
                             ],
                           ),
                         ),
-                        if (_canAddCurrent) ...[
-                          const SizedBox(width: 8),
-                          OutlinedButton(
-                            onPressed: _submitting
-                                ? null
-                                : () {
-                                    setState(() {
-                                      _addCurrentToOrder();
-                                      _error = null;
-                                      _success = null;
-                                    });
-                                  },
-                            child: const Text('Add'),
-                          ),
-                        ],
-                        const SizedBox(width: 8),
                         SizedBox(
-                          width: 132,
+                          width: 148,
                           child: GradientButton(
-                            label: 'Submit',
-                            busy: _submitting,
-                            onPressed: _canPrint ? _submit : null,
+                            label: widget.returnDocumentOnly
+                                ? 'Add to list'
+                                : 'Continue',
+                            onPressed: _canContinue ? _continueToQueue : null,
                           ),
                         ),
                       ],
@@ -565,7 +407,7 @@ class _BigUploadButton extends StatelessWidget {
   const _BigUploadButton({
     required this.onTap,
     this.busy = false,
-    this.label = 'Upload document',
+    this.label = 'Choose document',
   });
 
   final VoidCallback? onTap;
@@ -633,7 +475,7 @@ class _BigUploadButton extends StatelessWidget {
               ),
               const SizedBox(height: 10),
               Text(
-                'Tap to choose a PDF file',
+                'Tap to select a PDF file',
                 style: TextStyle(
                   fontSize: 15,
                   color: AppColors.muted.withValues(alpha: 0.95),

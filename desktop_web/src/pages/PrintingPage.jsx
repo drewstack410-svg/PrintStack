@@ -27,6 +27,8 @@ import { useAuth } from '../auth/AuthProvider'
 import PageHeader from '../components/dashboard/PageHeader'
 import PrintJobCards from '../components/printing/PrintJobCards'
 import { usePrintJobs } from '../hooks/usePrintJobs'
+import { orderDocuments } from '../lib/printOrder'
+import OrderDocumentsPage from './OrderDocumentsPage'
 
 const STATUS_FILTERS = [
   { value: 'all', label: 'All statuses' },
@@ -57,7 +59,9 @@ export default function PrintingPage() {
   const [sourceFilter, setSourceFilter] = useState('all')
   const [selectedJobIds, setSelectedJobIds] = useState(() => new Set())
   const [reprintingId, setReprintingId] = useState('')
+  const [reprintingDocId, setReprintingDocId] = useState('')
   const [bulkReprinting, setBulkReprinting] = useState(false)
+  const [openOrderId, setOpenOrderId] = useState('')
   const {
     jobs: printJobs,
     setJobs: setPrintJobs,
@@ -418,34 +422,37 @@ export default function PrintingPage() {
     })
   }
 
-  const reprintJob = useCallback(
-    async (job) => {
-      if (!printersApi?.printPdf || !selected || !user || !job?.fileUrl) {
-        throw new Error('Select a printer and a job with a PDF to reprint')
+  const reprintDocument = useCallback(
+    async (job, doc) => {
+      if (!printersApi?.printPdf || !selected || !user || !doc?.fileUrl) {
+        throw new Error('Select a printer and a document with a PDF to reprint')
       }
 
       const deviceName = selected
       const printer = printers.find((item) => item.name === deviceName)
       const printerName = printer?.displayName || printer?.name || deviceName
       const token = await user.getIdToken()
+      const documentId = doc.id || 'doc-1'
 
       await updatePrintJob(token, job.id, {
         status: 'sending',
         rawStatus: 'Reprinting',
         printerName,
         deviceName,
+        documentId,
       })
 
       const printed = await printersApi.printPdf({
-        trackId: job.id,
-        documentName: job.documentName,
-        fileUrl: job.fileUrl,
-        copies: job.copies || 1,
+        trackId: `${job.id}:${documentId}`,
+        documentName: doc.documentName || job.documentName,
+        fileUrl: doc.fileUrl,
+        copies: doc.copies || job.copies || 1,
         deviceName,
         printerName,
         customerName: job.customerName || '',
         customerEmail: job.customerEmail || '',
         createdAt: job.createdAt || '',
+        orderNumber: job.orderNumber || '',
       })
 
       await updatePrintJob(token, job.id, {
@@ -453,14 +460,29 @@ export default function PrintingPage() {
         rawStatus: 'Reprint in Windows print queue',
         printerName,
         deviceName,
-        localPath: printed?.localPath || printed?.savedPath || job.localPath || '',
+        documentId,
+        localPath: printed?.localPath || printed?.savedPath || doc.localPath || '',
       })
     },
     [printers, printersApi, selected, user],
   )
 
+  const reprintJob = useCallback(
+    async (job) => {
+      const docs = orderDocuments(job).filter((doc) => doc.fileUrl)
+      if (!docs.length) {
+        throw new Error('Select a printer and a job with a PDF to reprint')
+      }
+      for (const doc of docs) {
+        await reprintDocument(job, doc)
+      }
+    },
+    [reprintDocument],
+  )
+
   async function handleReprint(job) {
-    if (!job?.fileUrl) {
+    const docs = orderDocuments(job).filter((doc) => doc.fileUrl)
+    if (!docs.length) {
       return
     }
     setError('')
@@ -468,9 +490,11 @@ export default function PrintingPage() {
     setReprintingId(job.id)
     try {
       await reprintJob(job)
-      setSuccess(`Reprinted ${job.documentName || 'job'}`)
+      setSuccess(
+        `Reprinted order #${job.orderNumber || job.id} (${docs.length} doc${docs.length === 1 ? '' : 's'})`,
+      )
     } catch (err) {
-      setError(err.message || `Could not reprint ${job.documentName || 'job'}`)
+      setError(err.message || `Could not reprint order #${job.orderNumber || job.id}`)
       try {
         const token = await user.getIdToken()
         await updatePrintJob(token, job.id, {
@@ -485,8 +509,37 @@ export default function PrintingPage() {
     }
   }
 
+  async function handleReprintDocument(doc) {
+    const job = printJobs.find((item) => item.id === openOrderId)
+    if (!job || !doc?.fileUrl) {
+      return
+    }
+    setError('')
+    setSuccess('')
+    setReprintingDocId(doc.id)
+    try {
+      await reprintDocument(job, doc)
+      setSuccess(`Reprinted ${doc.documentName || 'document'}`)
+    } catch (err) {
+      setError(err.message || `Could not reprint ${doc.documentName || 'document'}`)
+      try {
+        const token = await user.getIdToken()
+        await updatePrintJob(token, job.id, {
+          status: 'failed',
+          rawStatus: err.message || 'Reprint failed',
+          documentId: doc.id,
+        })
+      } catch {
+        // Ignore follow-up write errors.
+      }
+      throw err
+    } finally {
+      setReprintingDocId('')
+    }
+  }
+
   async function handleBulkReprint() {
-    const jobs = selectedJobs.filter((job) => job.fileUrl)
+    const jobs = selectedJobs.filter((job) => orderDocuments(job).some((doc) => doc.fileUrl))
     if (!jobs.length) {
       setError('Select jobs with PDFs to reprint')
       return
@@ -506,7 +559,7 @@ export default function PrintingPage() {
         await reprintJob(job)
         done += 1
       }
-      setSuccess(`Reprinted ${done} job${done === 1 ? '' : 's'}`)
+      setSuccess(`Reprinted ${done} order${done === 1 ? '' : 's'}`)
       setSelectedJobIds(new Set())
     } catch (err) {
       setError(err.message || 'Bulk reprint failed')
@@ -514,6 +567,56 @@ export default function PrintingPage() {
       setReprintingId('')
       setBulkReprinting(false)
     }
+  }
+
+  const openOrder = openOrderId
+    ? printJobs.find((job) => job.id === openOrderId) || null
+    : null
+
+  useEffect(() => {
+    if (openOrderId && !printJobs.some((job) => job.id === openOrderId)) {
+      setOpenOrderId('')
+    }
+  }, [openOrderId, printJobs])
+
+  if (openOrder) {
+    return (
+      <Stack spacing={{ xs: 1.25, sm: 1.5 }} sx={{ width: '100%', minWidth: 0 }}>
+        {!printersApi ? (
+          <Alert severity="info" sx={{ py: 0 }}>
+            Open Printstack in the desktop app to list printers and send a test print.
+          </Alert>
+        ) : null}
+        {jobsError ? (
+          <Alert severity="warning" sx={{ py: 0 }}>
+            {jobsError}
+          </Alert>
+        ) : null}
+        {error ? (
+          <Alert severity="error" sx={{ py: 0 }}>
+            {error}
+          </Alert>
+        ) : null}
+        {success ? (
+          <Alert severity="success" sx={{ py: 0 }}>
+            {success}
+          </Alert>
+        ) : null}
+        <OrderDocumentsPage
+          job={openOrder}
+          onBack={() => {
+            setOpenOrderId('')
+            setError('')
+            setSuccess('')
+            setReprintingDocId('')
+          }}
+          onReprintDocument={handleReprintDocument}
+          reprintingDocId={reprintingDocId}
+          reprintDisabled={bulkReprinting || !printersApi || !selected}
+          printersReady={Boolean(printersApi && selected)}
+        />
+      </Stack>
+    )
   }
 
   return (
@@ -735,12 +838,17 @@ export default function PrintingPage() {
         jobs={filteredJobs}
         selectedIds={selectedJobIds}
         onToggleSelect={toggleJobSelection}
+        onOpenOrder={(job) => {
+          setOpenOrderId(job.id)
+          setError('')
+          setSuccess('')
+        }}
         onReprint={handleReprint}
         reprintingId={reprintingId}
         reprintDisabled={bulkReprinting || !printersApi || !selected}
         emptyMessage={
           printJobs.length === 0
-            ? 'Mobile and desktop jobs will show up here with a preview.'
+            ? 'Mobile and desktop orders will show up here. Open an order to view its documents.'
             : 'No jobs match the current filters.'
         }
       />
