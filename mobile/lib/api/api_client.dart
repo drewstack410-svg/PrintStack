@@ -7,6 +7,7 @@ import 'package:http/http.dart' as http;
 
 import '../config.dart';
 import '../models/partner.dart';
+import '../utils/print_document_kind.dart';
 
 class ApiException implements Exception {
   const ApiException(this.message);
@@ -107,6 +108,7 @@ class ApiClient {
     required String partnerId,
     required File file,
     required String fileName,
+    String? contentType,
   }) async {
     final user = _auth.currentUser;
     if (user == null) {
@@ -118,7 +120,9 @@ class ApiClient {
         'partners/$partnerId/jobs/${user.uid}/${DateTime.now().millisecondsSinceEpoch}_$safeName';
     final ref = _storage.ref(objectPath);
 
-    await ref.putFile(file, SettableMetadata(contentType: 'application/pdf'));
+    final resolvedType =
+        contentType ?? mimeTypeForPrintFileName(fileName) ?? 'application/pdf';
+    await ref.putFile(file, SettableMetadata(contentType: resolvedType));
 
     final fileUrl = await ref.getDownloadURL();
     return (fileUrl: fileUrl, filePath: objectPath);

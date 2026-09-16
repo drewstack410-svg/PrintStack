@@ -1,7 +1,6 @@
 import 'dart:async';
 import 'dart:math' as math;
 
-import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:pdfrx/pdfrx.dart';
 
@@ -11,6 +10,7 @@ import '../models/partner.dart';
 import '../models/print_draft_document.dart';
 import '../services/partners_repository.dart';
 import '../theme.dart';
+import '../utils/document_intake.dart';
 import '../utils/pdf_pages.dart';
 import 'print_queue_page.dart';
 
@@ -19,6 +19,9 @@ class PartnerOrderPage extends StatefulWidget {
     super.key,
     required this.partner,
     this.returnDocumentOnly = false,
+    this.initialDocumentPath,
+    this.initialDocumentName,
+    this.initialPaperSize,
   });
 
   final Partner partner;
@@ -26,14 +29,26 @@ class PartnerOrderPage extends StatefulWidget {
   /// When true (opened from the print queue), Continue pops with the draft doc.
   final bool returnDocumentOnly;
 
+  /// When set (e.g. after "Print at this shop" intake), open already on preview.
+  final String? initialDocumentPath;
+  final String? initialDocumentName;
+  final PaperSize? initialPaperSize;
+
   @override
   State<PartnerOrderPage> createState() => _PartnerOrderPageState();
 }
 
 enum _PageInkFilter { all, bw, color }
 
+class _PickedDocument {
+  const _PickedDocument({required this.path, required this.name});
+
+  final String path;
+  final String name;
+}
+
 class _PartnerOrderPageState extends State<PartnerOrderPage> {
-  PlatformFile? _picked;
+  _PickedDocument? _picked;
   PaperSize? _selectedSize;
   int _copies = 1;
   int _bwPages = 0;
@@ -58,6 +73,22 @@ class _PartnerOrderPageState extends State<PartnerOrderPage> {
       if (!mounted) return;
       setState(() => _livePartner = partner ?? widget.partner);
     });
+
+    final initialPath = widget.initialDocumentPath?.trim() ?? '';
+    if (initialPath.isNotEmpty) {
+      final name = (widget.initialDocumentName?.trim().isNotEmpty ?? false)
+          ? widget.initialDocumentName!.trim()
+          : initialPath.split(RegExp(r'[\\/]')).last;
+      _picked = _PickedDocument(path: initialPath, name: name);
+      _readingPdf = true;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        _loadDocument(
+          _picked!,
+          forcedSize: widget.initialPaperSize,
+        );
+      });
+    }
   }
 
   @override
@@ -86,7 +117,7 @@ class _PartnerOrderPageState extends State<PartnerOrderPage> {
   bool get _canContinue =>
       !_readingPdf &&
       _picked != null &&
-      (_picked!.path ?? '').isNotEmpty &&
+      _picked!.path.isNotEmpty &&
       _layoutFromPdf &&
       _selectedSize != null &&
       _totalPages > 0 &&
@@ -148,34 +179,55 @@ class _PartnerOrderPageState extends State<PartnerOrderPage> {
     return best;
   }
 
-  Future<void> _pickPdf() async {
+  Future<void> _chooseDocumentSource() async {
+    if (_readingPdf) {
+      return;
+    }
     setState(() {
       _error = null;
       _success = null;
     });
 
-    final files = await FilePicker.pickFiles(
-      type: FileType.custom,
-      allowedExtensions: const ['pdf'],
-    );
-
-    if (files.isEmpty) {
-      return;
+    try {
+      final picked = await intakePrintDocument(
+        context,
+        layouts: _sizes.isEmpty ? PaperSize.defaults : _sizes,
+        initialLayout: _selectedSize,
+      );
+      if (!mounted || picked == null) {
+        return;
+      }
+      if (picked.path.isEmpty) {
+        setState(() => _error = 'Could not read that document.');
+        return;
+      }
+      await _loadDocument(
+        _PickedDocument(path: picked.path, name: picked.name),
+        forcedSize: picked.paperSize,
+      );
+    } catch (error) {
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _readingPdf = false;
+        _error = 'Could not add that document.';
+      });
+      debugPrint('Document intake failed: $error');
     }
+  }
 
-    final file = files.first;
-    if ((file.path ?? '').isEmpty) {
-      setState(() => _error = 'Could not read that PDF file.');
-      return;
-    }
-
+  Future<void> _loadDocument(
+    _PickedDocument file, {
+    PaperSize? forcedSize,
+  }) async {
     setState(() {
       _picked = file;
       _readingPdf = true;
       _resetDetection();
     });
 
-    final info = await analyzePdfSafe(file.path!);
+    final info = await analyzePdfSafe(file.path);
     if (!mounted) {
       return;
     }
@@ -185,7 +237,7 @@ class _PartnerOrderPageState extends State<PartnerOrderPage> {
       _colorPages = info.colorPages;
       _pageIsColor = info.pageIsColor;
       _pageFilter = _PageInkFilter.all;
-      final matched = _matchPaperSize(info);
+      final matched = forcedSize ?? _matchPaperSize(info);
       _selectedSize = matched;
       _layoutFromPdf = matched != null;
       if (matched == null && _sizes.isNotEmpty) {
@@ -208,13 +260,12 @@ class _PartnerOrderPageState extends State<PartnerOrderPage> {
   PrintDraftDocument? _buildCurrentDraft() {
     final size = _selectedSize;
     final picked = _picked;
-    final path = picked?.path;
-    if (!_canContinue || size == null || picked == null || path == null) {
+    if (!_canContinue || size == null || picked == null) {
       return null;
     }
 
     return PrintDraftDocument(
-      path: path,
+      path: picked.path,
       fileName: picked.name,
       paperSize: size,
       copies: _copies,
@@ -307,15 +358,14 @@ class _PartnerOrderPageState extends State<PartnerOrderPage> {
                           onFilterBw: () => _togglePageFilter(_PageInkFilter.bw),
                           onFilterColor: () =>
                               _togglePageFilter(_PageInkFilter.color),
-                          onChange: _readingPdf ? null : _pickPdf,
+                          onChange: _readingPdf ? null : _chooseDocumentSource,
                           onClear: _readingPdf ? null : _clearDocument,
                         )
                       : Padding(
                           padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
-                          child: _BigUploadButton(
+                          child: _ChooseDocumentButton(
                             busy: _readingPdf,
-                            label: 'Choose document',
-                            onTap: _readingPdf ? null : _pickPdf,
+                            onTap: _readingPdf ? null : _chooseDocumentSource,
                           ),
                         ),
                 ),
@@ -507,16 +557,14 @@ class _PartnerOrderPageState extends State<PartnerOrderPage> {
   }
 }
 
-class _BigUploadButton extends StatelessWidget {
-  const _BigUploadButton({
+class _ChooseDocumentButton extends StatelessWidget {
+  const _ChooseDocumentButton({
     required this.onTap,
     this.busy = false,
-    this.label = 'Choose document',
   });
 
   final VoidCallback? onTap;
   final bool busy;
-  final String label;
 
   @override
   Widget build(BuildContext context) {
@@ -569,9 +617,9 @@ class _BigUploadButton extends StatelessWidget {
                       ),
               ),
               const SizedBox(height: 14),
-              Text(
-                label,
-                style: const TextStyle(
+              const Text(
+                'Choose document',
+                style: TextStyle(
                   fontSize: 16,
                   fontWeight: FontWeight.w900,
                   color: AppColors.navy,
@@ -579,7 +627,8 @@ class _BigUploadButton extends StatelessWidget {
               ),
               const SizedBox(height: 4),
               Text(
-                'Tap to select a PDF file',
+                'Tap to upload a PDF or scan a document',
+                textAlign: TextAlign.center,
                 style: TextStyle(
                   fontSize: 12,
                   color: AppColors.muted.withValues(alpha: 0.95),
@@ -793,20 +842,20 @@ class _DocumentPreview extends StatelessWidget {
                   elevation: 2,
                   child: Padding(
                     padding: const EdgeInsets.symmetric(
-                      horizontal: 8,
-                      vertical: 5,
+                      horizontal: 7,
+                      vertical: 4,
                     ),
                     child: Row(
                       mainAxisSize: MainAxisSize.min,
                       children: [
                         Icon(
                           Icons.crop_free,
-                          size: 13,
+                          size: 11,
                           color: sizeMatched
                               ? AppColors.purple
                               : AppColors.muted,
                         ),
-                        const SizedBox(width: 4),
+                        const SizedBox(width: 3),
                         Flexible(
                           child: Text(
                             sizeMatched && sizeName != null
@@ -817,7 +866,7 @@ class _DocumentPreview extends StatelessWidget {
                             style: const TextStyle(
                               fontWeight: FontWeight.w800,
                               color: AppColors.navy,
-                              fontSize: 10,
+                              fontSize: 9,
                             ),
                           ),
                         ),
@@ -868,11 +917,11 @@ class _DocumentPreview extends StatelessWidget {
                       tooltip: 'Change',
                       visualDensity: VisualDensity.compact,
                       constraints: const BoxConstraints(
-                        minWidth: 30,
-                        minHeight: 30,
+                        minWidth: 26,
+                        minHeight: 26,
                       ),
                       padding: EdgeInsets.zero,
-                      iconSize: 18,
+                      iconSize: 16,
                       onPressed: onChange,
                       icon: const Icon(Icons.swap_horiz),
                     ),
@@ -880,11 +929,11 @@ class _DocumentPreview extends StatelessWidget {
                       tooltip: 'Remove',
                       visualDensity: VisualDensity.compact,
                       constraints: const BoxConstraints(
-                        minWidth: 30,
-                        minHeight: 30,
+                        minWidth: 26,
+                        minHeight: 26,
                       ),
                       padding: EdgeInsets.zero,
-                      iconSize: 18,
+                      iconSize: 16,
                       onPressed: onClear,
                       icon: const Icon(Icons.close),
                     ),

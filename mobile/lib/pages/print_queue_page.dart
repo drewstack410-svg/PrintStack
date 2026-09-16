@@ -13,6 +13,7 @@ import '../models/partner.dart';
 import '../models/print_draft_document.dart';
 import '../services/partners_repository.dart';
 import '../theme.dart';
+import '../utils/print_document_kind.dart';
 import 'partner_order_page.dart';
 import 'print_order_payment_page.dart';
 
@@ -112,6 +113,7 @@ class _PrintQueuePageState extends State<PrintQueuePage> {
           partnerId: widget.partner.id,
           file: File(doc.path),
           fileName: doc.fileName,
+          contentType: mimeTypeForPrintFileName(doc.fileName),
         );
         payloads.add({
           'documentName': doc.fileName,

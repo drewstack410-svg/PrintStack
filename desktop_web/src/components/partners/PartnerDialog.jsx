@@ -9,9 +9,7 @@ import {
   DialogActions,
   DialogContent,
   DialogTitle,
-  FormControlLabel,
   Stack,
-  Switch,
   TextField,
   Typography,
 } from '@mui/material'
@@ -41,8 +39,6 @@ export default function PartnerDialog({ open, partner, onClose, onSubmit }) {
         confirmPassword: '',
         logo: null,
         convenienceFee: Number(partner.convenienceFee) || 0,
-        servicePrinting: partner.services?.printing !== false,
-        serviceXerox: partner.services?.xerox === true,
       }
     : partnerInitialValues
 
@@ -60,8 +56,6 @@ export default function PartnerDialog({ open, partner, onClose, onSubmit }) {
             data.append('companyName', values.companyName.trim())
             data.append('email', values.email.trim())
             data.append('convenienceFee', String(Number(values.convenienceFee) || 0))
-            data.append('servicePrinting', values.servicePrinting ? 'true' : 'false')
-            data.append('serviceXerox', values.serviceXerox ? 'true' : 'false')
             if (values.password) {
               data.append('password', values.password)
             }
@@ -252,31 +246,6 @@ function PartnerFormBody({
                 }
                 fullWidth
               />
-              <Stack spacing={0.25}>
-                <Typography variant="body2" color="text.secondary" fontWeight={600}>
-                  Enabled services
-                </Typography>
-                <FormControlLabel
-                  control={
-                    <Switch
-                      checked={Boolean(values.servicePrinting)}
-                      onChange={(event) => setFieldValue('servicePrinting', event.target.checked)}
-                      disabled={isSubmitting}
-                    />
-                  }
-                  label="Printing"
-                />
-                <FormControlLabel
-                  control={
-                    <Switch
-                      checked={Boolean(values.serviceXerox)}
-                      onChange={(event) => setFieldValue('serviceXerox', event.target.checked)}
-                      disabled={isSubmitting}
-                    />
-                  }
-                  label="Xerox"
-                />
-              </Stack>
             </Stack>
           </Box>
         </Stack>

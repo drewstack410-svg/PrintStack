@@ -7,6 +7,7 @@ import '../components/partners/partner_avatar.dart';
 import '../models/partner.dart';
 import '../services/partners_repository.dart';
 import '../theme.dart';
+import '../utils/document_intake.dart';
 import 'partner_order_page.dart';
 
 enum _UnitFilter { all, inches, mm }
@@ -77,16 +78,31 @@ class _ShopPricingPageState extends State<ShopPricingPage> {
     return w * h;
   }
 
-  void _openOrder(Partner partner) {
+  Future<void> _openOrder(Partner partner) async {
     if (partner.location?.online != true) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('This shop went offline.')),
       );
       return;
     }
-    Navigator.of(context).push(
+
+    final sizes = _sizesOf(partner);
+    final picked = await intakePrintDocument(
+      context,
+      layouts: sizes,
+    );
+    if (!mounted || picked == null) {
+      return;
+    }
+
+    await Navigator.of(context).push(
       MaterialPageRoute<void>(
-        builder: (_) => PartnerOrderPage(partner: partner),
+        builder: (_) => PartnerOrderPage(
+          partner: partner,
+          initialDocumentPath: picked.path,
+          initialDocumentName: picked.name,
+          initialPaperSize: picked.paperSize,
+        ),
       ),
     );
   }

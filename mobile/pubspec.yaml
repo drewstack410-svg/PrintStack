@@ -48,6 +48,12 @@ dependencies:
   geolocator: ^14.0.3
   url_launcher: ^6.3.1
   webview_flutter: ^4.14.1
+  doc_scan_flutter: 1.0.6
+  pdf: ^3.12.0
+  path_provider: ^2.1.6
+  file_preview_kit: ^0.0.5
+  native_file_preview: ^1.1.0
+  docx_creator: ^1.3.2
 
 dev_dependencies:
   flutter_test:

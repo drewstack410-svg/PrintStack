@@ -63,8 +63,6 @@ export const partnerCreateSchema = partnerSchema.shape({
     .typeError('Enter a valid fee')
     .min(0, 'Fee cannot be negative')
     .required('Convenience fee is required'),
-  servicePrinting: yup.boolean().required(),
-  serviceXerox: yup.boolean().required(),
 })
 
 export const partnerUpdateSchema = yup.object({
@@ -88,8 +86,6 @@ export const partnerUpdateSchema = yup.object({
     .typeError('Enter a valid fee')
     .min(0, 'Fee cannot be negative')
     .required('Convenience fee is required'),
-  servicePrinting: yup.boolean().required(),
-  serviceXerox: yup.boolean().required(),
 })
 
 export const loginInitialValues = {
@@ -104,8 +100,6 @@ export const partnerInitialValues = {
   confirmPassword: '',
   logo: null,
   convenienceFee: 0,
-  servicePrinting: true,
-  serviceXerox: false,
 }
 
 const staffNameFields = {
