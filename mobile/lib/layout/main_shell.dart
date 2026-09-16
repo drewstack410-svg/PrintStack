@@ -18,10 +18,11 @@ class MainShell extends StatefulWidget {
 
 class _MainShellState extends State<MainShell> {
   AppNavId _selected = AppNavId.home;
+  bool _hideChromeForSearch = false;
 
   String get _title => switch (_selected) {
         AppNavId.home => 'Home',
-        AppNavId.print => 'Print',
+        AppNavId.print => 'Find shops',
         AppNavId.history => 'History',
         AppNavId.location => 'Location',
         AppNavId.account => 'Account',
@@ -31,14 +32,27 @@ class _MainShellState extends State<MainShell> {
   Widget build(BuildContext context) {
     return AppShell(
       selected: _selected,
-      onSelect: (id) => setState(() => _selected = id),
+      onSelect: (id) => setState(() {
+        _selected = id;
+        if (id != AppNavId.print) {
+          _hideChromeForSearch = false;
+        }
+      }),
       title: _title,
+      hideCenterFab: _hideChromeForSearch,
       body: switch (_selected) {
         AppNavId.home => HomePage(
             onOpenPrint: () => setState(() => _selected = AppNavId.print),
             onOpenHistory: () => setState(() => _selected = AppNavId.history),
           ),
-        AppNavId.print => const PrintPage(),
+        AppNavId.print => PrintPage(
+            onSearchFocusChanged: (focused) {
+              if (_hideChromeForSearch == focused) {
+                return;
+              }
+              setState(() => _hideChromeForSearch = focused);
+            },
+          ),
         AppNavId.history => const HistoryPage(),
         AppNavId.location => const LocationPage(),
         AppNavId.account => const AccountPage(),

@@ -59,6 +59,65 @@ class DirectionsRoute {
   }
 }
 
+/// Builds a brand-gradient route line (cyan → blue → purple) as segment polylines.
+Set<Polyline> brandGradientPolylines(
+  List<LatLng> points, {
+  int width = 6,
+  int steps = 36,
+  String idPrefix = 'brand-route',
+}) {
+  if (points.length < 2) {
+    return {};
+  }
+
+  const colors = [Color(0xFF22D3EE), Color(0xFF4F7CFF), Color(0xFF7C5CFF)];
+  final segmentCount = points.length - 1 < steps ? points.length - 1 : steps;
+  final result = <Polyline>{};
+
+  for (var s = 0; s < segmentCount; s++) {
+    final start = ((s / segmentCount) * (points.length - 1)).floor();
+    var end = (((s + 1) / segmentCount) * (points.length - 1)).ceil();
+    if (end <= start) {
+      end = start + 1;
+    }
+    if (end >= points.length) {
+      end = points.length - 1;
+    }
+
+    final t = segmentCount <= 1 ? 0.0 : s / (segmentCount - 1);
+    final color = _sampleBrandGradient(colors, t);
+
+    result.add(
+      Polyline(
+        polylineId: PolylineId('$idPrefix-$s'),
+        points: points.sublist(start, end + 1),
+        color: color,
+        width: width,
+        startCap: Cap.roundCap,
+        endCap: Cap.roundCap,
+        jointType: JointType.round,
+        geodesic: false,
+      ),
+    );
+  }
+
+  return result;
+}
+
+Color _sampleBrandGradient(List<Color> colors, double t) {
+  if (colors.isEmpty) {
+    return const Color(0xFF7C5CFF);
+  }
+  if (colors.length == 1) {
+    return colors.first;
+  }
+  final clamped = t.clamp(0.0, 1.0);
+  final scaled = clamped * (colors.length - 1);
+  final index = scaled.floor().clamp(0, colors.length - 2);
+  final localT = scaled - index;
+  return Color.lerp(colors[index], colors[index + 1], localT) ?? colors[index];
+}
+
 RouteTrafficLevel _parseTrafficLevel(String raw) {
   switch (raw.trim().toLowerCase()) {
     case 'light':

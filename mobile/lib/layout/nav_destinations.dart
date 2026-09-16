@@ -26,7 +26,7 @@ const bottomNavDestinations = [
   ),
   AppNavDestination(
     id: AppNavId.print,
-    label: 'Print',
+    label: 'Find shops',
     icon: Icons.print_outlined,
     selectedIcon: Icons.print,
   ),

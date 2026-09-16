@@ -112,8 +112,10 @@ class _PrintQueuePageState extends State<PrintQueuePage> {
           'paperSizeId': doc.paperSize.id,
           'copies': doc.copies,
           'pages': doc.totalPages,
-          'bwPages': doc.bwPages,
-          'colorPages': doc.colorPages,
+          'bwPages': doc.billedBwPages,
+          'colorPages': doc.billedColorPages,
+          'colorMode': doc.colorMode,
+          'forceBlackAndWhite': doc.forceBlackAndWhite,
         });
       }
 
@@ -246,11 +248,20 @@ class _PrintQueuePageState extends State<PrintQueuePage> {
                             final doc = _documents[index];
                             return Padding(
                               padding: const EdgeInsets.only(bottom: 10),
-                              child: _QueueDocCard(
-                                doc: doc,
-                                onRemove:
-                                    _printing ? null : () => _removeAt(index),
-                              ),
+                          child: _QueueDocCard(
+                            doc: doc,
+                            onRemove:
+                                _printing ? null : () => _removeAt(index),
+                            onToggleForceBw: !_printing && doc.hasDetectedColor
+                                ? (value) {
+                                    setState(() {
+                                      _documents[index] = doc.copyWith(
+                                        forceBlackAndWhite: value,
+                                      );
+                                    });
+                                  }
+                                : null,
+                          ),
                             );
                           }),
                         ],
@@ -341,10 +352,12 @@ class _QueueDocCard extends StatelessWidget {
   const _QueueDocCard({
     required this.doc,
     required this.onRemove,
+    this.onToggleForceBw,
   });
 
   final PrintDraftDocument doc;
   final VoidCallback? onRemove;
+  final ValueChanged<bool>? onToggleForceBw;
 
   @override
   Widget build(BuildContext context) {
@@ -353,58 +366,80 @@ class _QueueDocCard extends StatelessWidget {
       borderRadius: BorderRadius.circular(16),
       child: Padding(
         padding: const EdgeInsets.fromLTRB(14, 12, 8, 12),
-        child: Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            Container(
-              width: 44,
-              height: 44,
-              decoration: BoxDecoration(
-                color: AppColors.mist,
-                borderRadius: BorderRadius.circular(12),
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Container(
+                  width: 44,
+                  height: 44,
+                  decoration: BoxDecoration(
+                    color: AppColors.mist,
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: const Icon(Icons.picture_as_pdf, color: AppColors.purple),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        doc.fileName,
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          fontWeight: FontWeight.w800,
+                          fontSize: 15,
+                          color: AppColors.navy,
+                        ),
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        '${doc.paperSize.name} · ${doc.pageBreakdown} · ${doc.copies} cop${doc.copies == 1 ? 'y' : 'ies'}',
+                        style: const TextStyle(
+                          color: AppColors.muted,
+                          fontSize: 13,
+                        ),
+                      ),
+                      const SizedBox(height: 6),
+                      Text(
+                        '₱${doc.lineTotal.toStringAsFixed(2)}',
+                        style: const TextStyle(
+                          fontWeight: FontWeight.w800,
+                          color: AppColors.purple,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                IconButton(
+                  onPressed: onRemove,
+                  icon: const Icon(Icons.close),
+                  color: AppColors.muted,
+                  tooltip: 'Remove',
+                ),
+              ],
+            ),
+            if (doc.hasDetectedColor && onToggleForceBw != null) ...[
+              const SizedBox(height: 4),
+              SwitchListTile.adaptive(
+                contentPadding: EdgeInsets.zero,
+                dense: true,
+                value: doc.forceBlackAndWhite,
+                onChanged: onToggleForceBw,
+                title: const Text(
+                  'Print color as B&W',
+                  style: TextStyle(
+                    fontWeight: FontWeight.w700,
+                    fontSize: 13,
+                    color: AppColors.navy,
+                  ),
+                ),
               ),
-              child: const Icon(Icons.picture_as_pdf, color: AppColors.purple),
-            ),
-            const SizedBox(width: 12),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    doc.fileName,
-                    maxLines: 2,
-                    overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(
-                      fontWeight: FontWeight.w800,
-                      fontSize: 15,
-                      color: AppColors.navy,
-                    ),
-                  ),
-                  const SizedBox(height: 4),
-                  Text(
-                    '${doc.paperSize.name} · ${doc.pageBreakdown} · ${doc.copies} cop${doc.copies == 1 ? 'y' : 'ies'}',
-                    style: const TextStyle(
-                      color: AppColors.muted,
-                      fontSize: 13,
-                    ),
-                  ),
-                  const SizedBox(height: 6),
-                  Text(
-                    '₱${doc.lineTotal.toStringAsFixed(2)}',
-                    style: const TextStyle(
-                      fontWeight: FontWeight.w800,
-                      color: AppColors.purple,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            IconButton(
-              onPressed: onRemove,
-              icon: const Icon(Icons.close),
-              color: AppColors.muted,
-              tooltip: 'Remove',
-            ),
+            ],
           ],
         ),
       ),

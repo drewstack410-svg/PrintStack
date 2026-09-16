@@ -5,21 +5,24 @@ import 'package:geolocator/geolocator.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 
 import '../api/api_client.dart';
-import '../components/maps/map_theme_toggle_button.dart';
 import '../components/partners/partner_avatar.dart';
 import '../config.dart';
 import '../models/partner.dart';
 import '../services/partners_repository.dart';
 import '../theme.dart';
 import '../utils/directions_service.dart';
-import '../utils/map_theme_controller.dart';
 import '../utils/map_theme_styles.dart';
 import '../utils/partner_map_markers.dart';
 import 'shop_pricing_page.dart';
 
 /// Print tab: Philippines map of partners + floating partner cards.
 class PrintPage extends StatefulWidget {
-  const PrintPage({super.key});
+  const PrintPage({
+    super.key,
+    this.onSearchFocusChanged,
+  });
+
+  final ValueChanged<bool>? onSearchFocusChanged;
 
   @override
   State<PrintPage> createState() => _PrintPageState();
@@ -29,6 +32,8 @@ class _PrintPageState extends State<PrintPage> {
   late Stream<List<Partner>> _partnersStream;
   /// Show ~3 partner cards at once in the bottom slider.
   final _pageController = PageController(viewportFraction: 0.28);
+  final _searchController = TextEditingController();
+  final _searchFocus = FocusNode();
   GoogleMapController? _mapController;
   Timer? _tick;
   StreamSubscription<Position>? _positionSub;
@@ -38,6 +43,7 @@ class _PrintPageState extends State<PrintPage> {
   Set<Polyline> _polylines = {};
   DirectionsRoute? _activeRoute;
   String? _selectedId;
+  String _query = '';
   bool _buildingMarkers = false;
   bool _buildingRoute = false;
   bool _myLocationEnabled = false;
@@ -57,6 +63,13 @@ class _PrintPageState extends State<PrintPage> {
   void initState() {
     super.initState();
     _partnersStream = PartnersRepository.instance.watchOnlinePartners();
+    _searchFocus.addListener(() {
+      if (!mounted) {
+        return;
+      }
+      widget.onSearchFocusChanged?.call(_searchFocus.hasFocus);
+      setState(() {});
+    });
     _tick = Timer.periodic(const Duration(seconds: 15), (_) {
       if (mounted) {
         setState(() {});
@@ -68,9 +81,12 @@ class _PrintPageState extends State<PrintPage> {
 
   @override
   void dispose() {
+    widget.onSearchFocusChanged?.call(false);
     _tick?.cancel();
     _positionSub?.cancel();
     _pageController.dispose();
+    _searchController.dispose();
+    _searchFocus.dispose();
     _mapController?.dispose();
     super.dispose();
   }
@@ -218,6 +234,13 @@ class _PrintPageState extends State<PrintPage> {
     );
   }
 
+  String _formatDistance(double meters) {
+    if (meters < 1000) {
+      return '${meters.round()} m';
+    }
+    return '${(meters / 1000).toStringAsFixed(1)} km';
+  }
+
   List<Partner> _withLocations(List<Partner> partners) {
     return partners
         .where((p) {
@@ -330,18 +353,7 @@ class _PrintPageState extends State<PrintPage> {
 
       setState(() {
         _activeRoute = route;
-        _polylines = {
-          Polyline(
-            polylineId: const PolylineId('route-to-partner'),
-            points: route.points,
-            color: route.lineColor,
-            width: 6,
-            startCap: Cap.roundCap,
-            endCap: Cap.roundCap,
-            jointType: JointType.round,
-            geodesic: false,
-          ),
-        };
+        _polylines = brandGradientPolylines(route.points);
       });
 
       await _fitRoute(route.points);
@@ -405,23 +417,49 @@ class _PrintPageState extends State<PrintPage> {
     );
   }
 
+  List<Partner> _filterPartners(List<Partner> partners) {
+    final q = _query.trim().toLowerCase();
+    if (q.isEmpty) {
+      return partners;
+    }
+    return partners.where((partner) {
+      final name = partner.companyName.toLowerCase();
+      final email = partner.email.toLowerCase();
+      final label = (partner.location?.label ?? '').toLowerCase();
+      return name.contains(q) || email.contains(q) || label.contains(q);
+    }).toList(growable: false);
+  }
+
+  void _pickFromSearch(Partner partner, List<Partner> visible) {
+    _searchFocus.unfocus();
+    setState(() {
+      _query = '';
+      _searchController.clear();
+    });
+    _selectPartner(partner, animatePage: true);
+    final index = visible.indexWhere((item) => item.id == partner.id);
+    if (index >= 0 && _pageController.hasClients) {
+      _pageController.animateToPage(
+        index,
+        duration: const Duration(milliseconds: 280),
+        curve: Curves.easeOutCubic,
+      );
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
-    return AnimatedBuilder(
-      animation: MapThemeController.instance,
-      builder: (context, _) {
-        final mapTheme = MapThemeController.instance;
-        return StreamBuilder<List<Partner>>(
+    return StreamBuilder<List<Partner>>(
       stream: _partnersStream,
       builder: (context, snapshot) {
         final all = snapshot.data ?? const <Partner>[];
         final mappable = _withLocations(all);
         final nextIds = mappable.map((p) => p.id).join('|');
         final prevIds = _mappable.map((p) => p.id).join('|');
-        final orderChanged = nextIds != prevIds ||
-            !_samePartnerOrder(_mappable, mappable);
+        final orderChanged =
+            nextIds != prevIds || !_samePartnerOrder(_mappable, mappable);
 
-          if (orderChanged) {
+        if (orderChanged) {
           _mappable = mappable;
           if (_selectedId == null && mappable.isNotEmpty) {
             _selectedId = mappable.first.id;
@@ -450,16 +488,21 @@ class _PrintPageState extends State<PrintPage> {
           });
         }
 
+        final searching = _searchFocus.hasFocus;
+        final listPartners = _filterPartners(mappable);
+        final carouselPartners = mappable;
+        final selectedInCarousel = _selectedId == null
+            ? -1
+            : carouselPartners.indexWhere((p) => p.id == _selectedId);
+        final carouselPageIndex =
+            selectedInCarousel >= 0 ? selectedInCarousel : _pageIndex;
+
         return Stack(
           fit: StackFit.expand,
           children: [
             GoogleMap(
-              key: ValueKey('print-map-${mapTheme.isDark}'),
               mapId: AppConfig.cloudMapId.isEmpty ? null : AppConfig.cloudMapId,
-              colorScheme: mapTheme.colorScheme,
-              style: mapTheme.isDark
-                  ? MapThemeStyles.dark
-                  : MapThemeStyles.light,
+              style: MapThemeStyles.light,
               initialCameraPosition: _philippines,
               myLocationEnabled: _myLocationEnabled,
               myLocationButtonEnabled: false,
@@ -471,79 +514,172 @@ class _PrintPageState extends State<PrintPage> {
               polylines: _polylines,
               onMapCreated: (controller) async {
                 _mapController = controller;
-                // Always open on Philippines first.
                 await controller.moveCamera(
                   CameraUpdate.newCameraPosition(_philippines),
                 );
                 await _runIntroFlyIfReady();
               },
+              onTap: (_) => _searchFocus.unfocus(),
             ),
-            if (mappable.isNotEmpty)
-              Positioned(
-                left: 16,
-                right: 16,
-                top: 12,
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
+            Positioned(
+              left: 12,
+              right: 12,
+              top: 10,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Material(
+                    color: Colors.white,
+                    elevation: 3,
+                    borderRadius: BorderRadius.circular(12),
+                    child: TextField(
+                      controller: _searchController,
+                      focusNode: _searchFocus,
+                      onChanged: (value) => setState(() => _query = value),
+                      onTap: () => setState(() {}),
+                      textInputAction: TextInputAction.search,
+                      decoration: InputDecoration(
+                        isDense: true,
+                        hintText: searching
+                            ? 'Nearby shops'
+                            : 'Search shops…',
+                        border: InputBorder.none,
+                        enabledBorder: InputBorder.none,
+                        focusedBorder: InputBorder.none,
+                        contentPadding: const EdgeInsets.symmetric(
+                          horizontal: 12,
+                          vertical: 12,
+                        ),
+                        prefixIcon: const Icon(Icons.search, size: 20),
+                        suffixIcon: _query.isEmpty
+                            ? null
+                            : IconButton(
+                                tooltip: 'Clear',
+                                onPressed: () {
+                                  _searchController.clear();
+                                  setState(() => _query = '');
+                                },
+                                icon: const Icon(Icons.close, size: 18),
+                              ),
+                      ),
+                    ),
+                  ),
+                  if (searching) ...[
+                    const SizedBox(height: 6),
                     Material(
                       color: Colors.white,
                       elevation: 3,
                       borderRadius: BorderRadius.circular(12),
-                      child: const Padding(
-                        padding: EdgeInsets.symmetric(
-                          horizontal: 12,
-                          vertical: 10,
+                      clipBehavior: Clip.antiAlias,
+                      child: ConstrainedBox(
+                        constraints: BoxConstraints(
+                          maxHeight: MediaQuery.sizeOf(context).height * 0.45,
                         ),
-                        child: Row(
-                          children: [
-                            Icon(
-                              Icons.touch_app_outlined,
-                              color: AppColors.purpleDark,
-                              size: 18,
-                            ),
-                            SizedBox(width: 8),
-                            Expanded(
-                              child: Text(
-                                'Swipe to browse nearby shops, then tap one to view pricing.',
-                                style: TextStyle(
-                                  fontWeight: FontWeight.w700,
-                                  color: AppColors.navy,
-                                  fontSize: 13,
+                        child: listPartners.isEmpty
+                            ? Padding(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 14,
+                                  vertical: 14,
                                 ),
+                                child: Text(
+                                  _query.trim().isEmpty
+                                      ? 'No nearby shops online.'
+                                      : 'No shops match that search.',
+                                  style: const TextStyle(
+                                    color: AppColors.muted,
+                                    fontWeight: FontWeight.w600,
+                                    fontSize: 13,
+                                  ),
+                                ),
+                              )
+                            : ListView.separated(
+                                shrinkWrap: true,
+                                padding: EdgeInsets.zero,
+                                itemCount: listPartners.length,
+                                separatorBuilder: (_, _) => const Divider(
+                                  height: 1,
+                                  indent: 12,
+                                  endIndent: 12,
+                                ),
+                                itemBuilder: (context, index) {
+                                  final partner = listPartners[index];
+                                  final name = partner.companyName.isEmpty
+                                      ? 'Shop'
+                                      : partner.companyName;
+                                  final distance =
+                                      _distanceMetersTo(partner);
+                                  final meta = [
+                                    if ((partner.location?.label ?? '')
+                                        .trim()
+                                        .isNotEmpty)
+                                      partner.location!.label.trim(),
+                                    if (distance != null)
+                                      _formatDistance(distance),
+                                  ];
+                                  return ListTile(
+                                    dense: true,
+                                    contentPadding: const EdgeInsets.symmetric(
+                                      horizontal: 12,
+                                      vertical: 2,
+                                    ),
+                                    leading: PartnerAvatar(
+                                      url: partner.logoUrl,
+                                      name: name,
+                                      size: 34,
+                                    ),
+                                    title: Text(
+                                      name,
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                      style: const TextStyle(
+                                        fontWeight: FontWeight.w800,
+                                        fontSize: 13.5,
+                                        color: AppColors.navy,
+                                      ),
+                                    ),
+                                    subtitle: meta.isEmpty
+                                        ? null
+                                        : Text(
+                                            meta.join(' · '),
+                                            maxLines: 1,
+                                            overflow: TextOverflow.ellipsis,
+                                            style: const TextStyle(
+                                              color: AppColors.muted,
+                                              fontSize: 11.5,
+                                            ),
+                                          ),
+                                    onTap: () => _pickFromSearch(
+                                      partner,
+                                      carouselPartners,
+                                    ),
+                                  );
+                                },
                               ),
-                            ),
-                          ],
-                        ),
                       ),
                     ),
-                    if (_activeRoute != null &&
-                        (_activeRoute!.etaLabel.isNotEmpty ||
-                            _activeRoute!.distanceText.isNotEmpty)) ...[
-                      const SizedBox(height: 8),
-                      _RouteTrafficChip(route: _activeRoute!),
-                    ],
                   ],
-                ),
-              ),
-            Positioned(
-              right: 14,
-              bottom: mappable.isEmpty ? 24 : 156,
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  const MapThemeToggleButton(heroTag: 'print-map-theme'),
-                  const SizedBox(height: 10),
-                  FloatingActionButton.small(
-                    heroTag: 'print-my-location',
-                    backgroundColor: Colors.white,
-                    foregroundColor: AppColors.purpleDark,
-                    onPressed: _goToMyLocation,
-                    child: const Icon(Icons.my_location),
-                  ),
+                  if (!searching &&
+                      _activeRoute != null &&
+                      (_activeRoute!.etaLabel.isNotEmpty ||
+                          _activeRoute!.distanceText.isNotEmpty)) ...[
+                    const SizedBox(height: 6),
+                    _RouteTrafficChip(route: _activeRoute!),
+                  ],
                 ],
               ),
             ),
+            if (!searching)
+              Positioned(
+                right: 14,
+                bottom: carouselPartners.isEmpty ? 24 : 148,
+                child: FloatingActionButton.small(
+                  heroTag: 'print-my-location',
+                  backgroundColor: Colors.white,
+                  foregroundColor: AppColors.purpleDark,
+                  onPressed: _goToMyLocation,
+                  child: const Icon(Icons.my_location),
+                ),
+              ),
             if (snapshot.connectionState == ConnectionState.waiting &&
                 !snapshot.hasData)
               const Center(child: CircularProgressIndicator()),
@@ -551,7 +687,7 @@ class _PrintPageState extends State<PrintPage> {
               Positioned(
                 left: 16,
                 right: 16,
-                top: 16,
+                top: 72,
                 child: Material(
                   color: const Color(0xFFFFEBEE),
                   borderRadius: BorderRadius.circular(14),
@@ -570,27 +706,30 @@ class _PrintPageState extends State<PrintPage> {
               const Positioned(
                 left: 24,
                 right: 24,
-                top: 24,
+                top: 72,
                 child: _MapBanner(
                   title: 'No shops online',
                   message:
                       'Only active shops appear here. Check back when a partner comes online.',
                 ),
               ),
-            if (mappable.isNotEmpty)
+            if (!searching && carouselPartners.isNotEmpty)
               Positioned(
                 left: 0,
                 right: 0,
                 bottom: 12,
                 child: _PartnerCarousel(
-                  partners: mappable,
+                  partners: carouselPartners,
                   selectedId: _selectedId,
-                  pageIndex: _pageIndex,
+                  pageIndex: carouselPageIndex.clamp(
+                    0,
+                    carouselPartners.length - 1,
+                  ),
                   controller: _pageController,
                   distanceMetersFor: _distanceMetersTo,
                   selectedRoute: _activeRoute,
                   onPageChanged: (index) {
-                    final partner = mappable[index];
+                    final partner = carouselPartners[index];
                     setState(() => _pageIndex = index);
                     _selectPartner(partner, animatePage: false);
                   },
@@ -598,8 +737,6 @@ class _PrintPageState extends State<PrintPage> {
                 ),
               ),
           ],
-        );
-      },
         );
       },
     );

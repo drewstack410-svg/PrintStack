@@ -13,6 +13,7 @@ class AppShell extends StatelessWidget {
     required this.title,
     required this.body,
     this.actions,
+    this.hideCenterFab = false,
   });
 
   final AppNavId selected;
@@ -20,6 +21,7 @@ class AppShell extends StatelessWidget {
   final String title;
   final Widget body;
   final List<Widget>? actions;
+  final bool hideCenterFab;
 
   @override
   Widget build(BuildContext context) {
@@ -50,37 +52,41 @@ class AppShell extends StatelessWidget {
       ),
       body: body,
       floatingActionButtonLocation: FloatingActionButtonLocation.centerDocked,
-      floatingActionButton: _PrintFab(
-        selected: printSelected,
-        onTap: () => onSelect(AppNavId.print),
-      ),
-      bottomNavigationBar: BottomAppBar(
-        color: AppColors.barDark,
-        shape: const CircularNotchedRectangle(),
-        notchMargin: 8,
-        elevation: 10,
-        padding: EdgeInsets.zero,
-        height: 64,
-        child: Row(
-          children: [
-            Expanded(
-              child: _NavItem(
-                destination: bottomNavDestinations[0],
-                selected: bottomId == AppNavId.home,
-                onTap: () => onSelect(AppNavId.home),
+      floatingActionButton: hideCenterFab
+          ? null
+          : _PrintFab(
+              selected: printSelected,
+              onTap: () => onSelect(AppNavId.print),
+            ),
+      bottomNavigationBar: hideCenterFab
+          ? null
+          : BottomAppBar(
+              color: AppColors.barDark,
+              shape: const CircularNotchedRectangle(),
+              notchMargin: 8,
+              elevation: 10,
+              padding: EdgeInsets.zero,
+              height: 64,
+              child: Row(
+                children: [
+                  Expanded(
+                    child: _NavItem(
+                      destination: bottomNavDestinations[0],
+                      selected: bottomId == AppNavId.home,
+                      onTap: () => onSelect(AppNavId.home),
+                    ),
+                  ),
+                  const Spacer(),
+                  Expanded(
+                    child: _NavItem(
+                      destination: bottomNavDestinations[2],
+                      selected: bottomId == AppNavId.history,
+                      onTap: () => onSelect(AppNavId.history),
+                    ),
+                  ),
+                ],
               ),
             ),
-            const Spacer(),
-            Expanded(
-              child: _NavItem(
-                destination: bottomNavDestinations[2],
-                selected: bottomId == AppNavId.history,
-                onTap: () => onSelect(AppNavId.history),
-              ),
-            ),
-          ],
-        ),
-      ),
     );
   }
 }
@@ -195,15 +201,16 @@ class _PrintFab extends StatelessWidget {
             child: const Column(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
-                Icon(Icons.print_rounded, color: Colors.white, size: 24),
+                Icon(Icons.storefront_rounded, color: Colors.white, size: 22),
                 SizedBox(height: 2),
                 Text(
-                  'Print',
+                  'Find shops',
+                  textAlign: TextAlign.center,
                   style: TextStyle(
                     color: Colors.white,
-                    fontSize: 11,
+                    fontSize: 8.5,
                     fontWeight: FontWeight.w800,
-                    height: 1,
+                    height: 1.05,
                   ),
                 ),
               ],

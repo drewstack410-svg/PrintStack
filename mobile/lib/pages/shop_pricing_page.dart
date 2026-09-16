@@ -147,19 +147,6 @@ class _ShopPricingPageState extends State<ShopPricingPage> {
                   padding:
                       EdgeInsets.fromLTRB(14, 12, 14, 20 + bottomInset + 80),
                   children: [
-                    if ((partner.location?.label ?? '').isNotEmpty)
-                      Padding(
-                        padding: const EdgeInsets.only(bottom: 10),
-                        child: Text(
-                          partner.location!.label,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: const TextStyle(
-                            color: AppColors.muted,
-                            fontSize: 13,
-                          ),
-                        ),
-                      ),
                     TextField(
                       controller: _searchController,
                       onChanged: (value) => setState(() => _query = value),
@@ -277,8 +264,11 @@ class _ShopPricingPageState extends State<ShopPricingPage> {
                       Material(
                         color: Colors.white,
                         borderRadius: BorderRadius.circular(14),
+                        clipBehavior: Clip.antiAlias,
                         child: Column(
                           children: [
+                            const _PricingHeader(),
+                            const Divider(height: 1),
                             for (var i = 0; i < filtered.length; i++) ...[
                               _PricingRow(size: filtered[i]),
                               if (i < filtered.length - 1)
@@ -315,6 +305,60 @@ class _ShopPricingPageState extends State<ShopPricingPage> {
           ),
         );
       },
+    );
+  }
+}
+
+class _PricingHeader extends StatelessWidget {
+  const _PricingHeader();
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      color: AppColors.mist,
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+      child: const Row(
+        children: [
+          Expanded(
+            child: Text(
+              'Layout',
+              style: TextStyle(
+                fontWeight: FontWeight.w800,
+                color: AppColors.muted,
+                fontSize: 11,
+                letterSpacing: 0.35,
+              ),
+            ),
+          ),
+          SizedBox(
+            width: 88,
+            child: Text(
+              'B&W',
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                fontWeight: FontWeight.w800,
+                color: AppColors.muted,
+                fontSize: 11,
+                letterSpacing: 0.35,
+              ),
+            ),
+          ),
+          SizedBox(width: 8),
+          SizedBox(
+            width: 88,
+            child: Text(
+              'Color',
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                fontWeight: FontWeight.w800,
+                color: AppColors.muted,
+                fontSize: 11,
+                letterSpacing: 0.35,
+              ),
+            ),
+          ),
+        ],
+      ),
     );
   }
 }
@@ -356,16 +400,28 @@ class _PricingRow extends StatelessWidget {
             ),
           ),
           const SizedBox(width: 10),
-          _MiniPrice(
-            icon: Icons.filter_b_and_w,
-            value: '₱${size.priceBw.toStringAsFixed(2)}',
-            color: AppColors.navy,
+          SizedBox(
+            width: 88,
+            child: Align(
+              alignment: Alignment.center,
+              child: _MiniPrice(
+                icon: Icons.filter_b_and_w,
+                value: '₱${size.priceBw.toStringAsFixed(2)}',
+                color: AppColors.navy,
+              ),
+            ),
           ),
           const SizedBox(width: 8),
-          _MiniPrice(
-            icon: Icons.palette_outlined,
-            value: '₱${size.priceColor.toStringAsFixed(2)}',
-            color: AppColors.purple,
+          SizedBox(
+            width: 88,
+            child: Align(
+              alignment: Alignment.center,
+              child: _MiniPrice(
+                icon: Icons.palette_outlined,
+                value: '₱${size.priceColor.toStringAsFixed(2)}',
+                color: AppColors.purple,
+              ),
+            ),
           ),
         ],
       ),

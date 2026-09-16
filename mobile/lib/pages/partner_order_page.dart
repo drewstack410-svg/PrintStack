@@ -42,6 +42,7 @@ class _PartnerOrderPageState extends State<PartnerOrderPage> {
   _PageInkFilter _pageFilter = _PageInkFilter.all;
   bool _readingPdf = false;
   bool _layoutFromPdf = false;
+  bool _printColorAsBw = false;
   String? _error;
   String? _success;
   late final Stream<Partner?> _partnerStream;
@@ -74,8 +75,12 @@ class _PartnerOrderPageState extends State<PartnerOrderPage> {
   double get _bwUnit => _selectedSize?.priceBw ?? 0;
   double get _colorUnit => _selectedSize?.priceColor ?? 0;
 
-  double get _bwSubtotal => _bwPages * _copies * _bwUnit;
-  double get _colorSubtotal => _colorPages * _copies * _colorUnit;
+  int get _billedBwPages =>
+      _printColorAsBw ? _totalPages : _bwPages;
+  int get _billedColorPages => _printColorAsBw ? 0 : _colorPages;
+
+  double get _bwSubtotal => _billedBwPages * _copies * _bwUnit;
+  double get _colorSubtotal => _billedColorPages * _copies * _colorUnit;
   double get _currentTotal => _bwSubtotal + _colorSubtotal;
 
   bool get _canContinue =>
@@ -94,6 +99,7 @@ class _PartnerOrderPageState extends State<PartnerOrderPage> {
     _pageFilter = _PageInkFilter.all;
     _layoutFromPdf = false;
     _selectedSize = null;
+    _printColorAsBw = false;
   }
 
   void _togglePageFilter(_PageInkFilter filter) {
@@ -215,6 +221,7 @@ class _PartnerOrderPageState extends State<PartnerOrderPage> {
       bwPages: _bwPages,
       colorPages: _colorPages,
       pageIsColor: List<bool>.from(_pageIsColor),
+      forceBlackAndWhite: _printColorAsBw && _colorPages > 0,
     );
   }
 
@@ -293,6 +300,7 @@ class _PartnerOrderPageState extends State<PartnerOrderPage> {
                           colorPages: _colorPages,
                           pageIsColor: _pageIsColor,
                           pageFilter: _pageFilter,
+                          printColorAsBw: _printColorAsBw,
                           sizeName: _selectedSize?.name,
                           sizeLabel: _selectedSize?.sizeLabel,
                           sizeMatched: _layoutFromPdf,
@@ -392,6 +400,47 @@ class _PartnerOrderPageState extends State<PartnerOrderPage> {
                           ],
                         ),
                       ),
+                      if (_colorPages > 0) ...[
+                        const SizedBox(height: 8),
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 10,
+                            vertical: 2,
+                          ),
+                          decoration: BoxDecoration(
+                            color: AppColors.mist,
+                            borderRadius: BorderRadius.circular(14),
+                            border: Border.all(
+                              color: AppColors.purple.withValues(alpha: 0.12),
+                            ),
+                          ),
+                          child: SwitchListTile.adaptive(
+                            contentPadding: EdgeInsets.zero,
+                            dense: true,
+                            value: _printColorAsBw,
+                            onChanged: (value) {
+                              setState(() => _printColorAsBw = value);
+                            },
+                            title: const Text(
+                              'Print color as B&W',
+                              style: TextStyle(
+                                fontWeight: FontWeight.w800,
+                                fontSize: 14,
+                                color: AppColors.navy,
+                              ),
+                            ),
+                            subtitle: Text(
+                              _printColorAsBw
+                                  ? 'All $_totalPages pages billed at B&W price'
+                                  : '$_colorPages color page${_colorPages == 1 ? '' : 's'} at color price',
+                              style: const TextStyle(
+                                color: AppColors.muted,
+                                fontSize: 12,
+                              ),
+                            ),
+                          ),
+                        ),
+                      ],
                       const SizedBox(height: 10),
                     ],
                     Row(
@@ -544,6 +593,7 @@ class _DocumentPreview extends StatelessWidget {
     required this.sizeMatched,
     required this.onFilterBw,
     required this.onFilterColor,
+    this.printColorAsBw = false,
     this.sizeName,
     this.sizeLabel,
     this.onChange,
@@ -556,6 +606,7 @@ class _DocumentPreview extends StatelessWidget {
   final int colorPages;
   final List<bool> pageIsColor;
   final _PageInkFilter pageFilter;
+  final bool printColorAsBw;
   final bool sizeMatched;
   final VoidCallback onFilterBw;
   final VoidCallback onFilterColor;
@@ -564,8 +615,15 @@ class _DocumentPreview extends StatelessWidget {
   final VoidCallback? onChange;
   final VoidCallback? onClear;
 
+  static const _greyscaleFilter = ColorFilter.matrix(<double>[
+    0.2126, 0.7152, 0.0722, 0, 0,
+    0.2126, 0.7152, 0.0722, 0, 0,
+    0.2126, 0.7152, 0.0722, 0, 0,
+    0, 0, 0, 1, 0,
+  ]);
+
   bool _pageVisible(int pageNumber) {
-    if (pageFilter == _PageInkFilter.all || pageIsColor.isEmpty) {
+    if (printColorAsBw || pageFilter == _PageInkFilter.all || pageIsColor.isEmpty) {
       return true;
     }
     final index = pageNumber - 1;
@@ -655,41 +713,52 @@ class _DocumentPreview extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final hasFilteredPages = pageFilter == _PageInkFilter.all ||
+    final effectiveFilter =
+        printColorAsBw ? _PageInkFilter.all : pageFilter;
+    final previewBwPages = printColorAsBw ? bwPages + colorPages : bwPages;
+    final previewColorPages = printColorAsBw ? 0 : colorPages;
+    final hasFilteredPages = effectiveFilter == _PageInkFilter.all ||
         _filteredCount > 0 ||
         pageIsColor.isEmpty;
+
+    final viewer = hasFilteredPages
+        ? PdfViewer.file(
+            path,
+            key: ValueKey(
+              'preview-$path-$effectiveFilter-$_firstVisiblePageNumber-$printColorAsBw',
+            ),
+            initialPageNumber: _firstVisiblePageNumber,
+            params: PdfViewerParams(
+              margin: 0,
+              backgroundColor: const Color(0xFFE8ECF4),
+              layoutPages: effectiveFilter == _PageInkFilter.all
+                  ? null
+                  : _layoutFilteredPages,
+            ),
+          )
+        : Center(
+            child: Text(
+              pageFilter == _PageInkFilter.color
+                  ? 'No color pages detected'
+                  : 'No B&W pages detected',
+              style: const TextStyle(
+                color: AppColors.muted,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          );
 
     return Stack(
       children: [
         Positioned.fill(
           child: ColoredBox(
             color: const Color(0xFFE8ECF4),
-            child: hasFilteredPages
-                ? PdfViewer.file(
-                    path,
-                    key: ValueKey(
-                      'preview-$path-$pageFilter-$_firstVisiblePageNumber',
-                    ),
-                    initialPageNumber: _firstVisiblePageNumber,
-                    params: PdfViewerParams(
-                      margin: 0,
-                      backgroundColor: const Color(0xFFE8ECF4),
-                      layoutPages: pageFilter == _PageInkFilter.all
-                          ? null
-                          : _layoutFilteredPages,
-                    ),
+            child: printColorAsBw
+                ? ColorFiltered(
+                    colorFilter: _greyscaleFilter,
+                    child: viewer,
                   )
-                : Center(
-                    child: Text(
-                      pageFilter == _PageInkFilter.color
-                          ? 'No color pages detected'
-                          : 'No B&W pages detected',
-                      style: const TextStyle(
-                        color: AppColors.muted,
-                        fontWeight: FontWeight.w700,
-                      ),
-                    ),
-                  ),
+                : viewer,
           ),
         ),
         if (reading)
@@ -745,6 +814,36 @@ class _DocumentPreview extends StatelessWidget {
                   ),
                 ),
               ),
+              if (printColorAsBw) ...[
+                const SizedBox(width: 8),
+                Material(
+                  color: AppColors.navy.withValues(alpha: 0.92),
+                  borderRadius: BorderRadius.circular(999),
+                  elevation: 3,
+                  child: const Padding(
+                    padding: EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(
+                          Icons.filter_b_and_w,
+                          size: 14,
+                          color: Colors.white,
+                        ),
+                        SizedBox(width: 5),
+                        Text(
+                          'B&W preview',
+                          style: TextStyle(
+                            color: Colors.white,
+                            fontWeight: FontWeight.w800,
+                            fontSize: 11,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ],
               const SizedBox(width: 8),
               Material(
                 color: Colors.white.withValues(alpha: 0.94),
@@ -778,24 +877,33 @@ class _DocumentPreview extends StatelessWidget {
               children: [
                 _CountBadgeIcon(
                   icon: Icons.filter_b_and_w,
-                  count: bwPages,
+                  count: previewBwPages,
                   color: AppColors.navy,
-                  selected: pageFilter == _PageInkFilter.bw,
-                  tooltip: pageFilter == _PageInkFilter.bw
-                      ? 'Show all pages'
-                      : 'Show B&W pages only',
-                  onTap: bwPages > 0 ? onFilterBw : null,
+                  selected: !printColorAsBw && pageFilter == _PageInkFilter.bw,
+                  tooltip: printColorAsBw
+                      ? 'Showing all pages as B&W'
+                      : pageFilter == _PageInkFilter.bw
+                          ? 'Show all pages'
+                          : 'Show B&W pages only',
+                  onTap: printColorAsBw || previewBwPages <= 0
+                      ? null
+                      : onFilterBw,
                 ),
                 const SizedBox(height: 10),
                 _CountBadgeIcon(
                   icon: Icons.palette_outlined,
-                  count: colorPages,
+                  count: previewColorPages,
                   color: AppColors.purple,
-                  selected: pageFilter == _PageInkFilter.color,
-                  tooltip: pageFilter == _PageInkFilter.color
-                      ? 'Show all pages'
-                      : 'Show color pages only',
-                  onTap: colorPages > 0 ? onFilterColor : null,
+                  selected:
+                      !printColorAsBw && pageFilter == _PageInkFilter.color,
+                  tooltip: printColorAsBw
+                      ? 'Color preview disabled'
+                      : pageFilter == _PageInkFilter.color
+                          ? 'Show all pages'
+                          : 'Show color pages only',
+                  onTap: printColorAsBw || previewColorPages <= 0
+                      ? null
+                      : onFilterColor,
                 ),
               ],
             ),
