@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 
 import '../api/api_client.dart';
+import '../theme.dart';
 
 enum RouteTrafficLevel { light, moderate, heavy, unknown }
 
@@ -82,18 +83,7 @@ class DirectionsRoute {
     return durationText.trim();
   }
 
-  Color get lineColor {
-    switch (trafficLevel) {
-      case RouteTrafficLevel.light:
-        return const Color(0xFF2E7D32);
-      case RouteTrafficLevel.moderate:
-        return const Color(0xFFF9A825);
-      case RouteTrafficLevel.heavy:
-        return const Color(0xFFC62828);
-      case RouteTrafficLevel.unknown:
-        return const Color(0xFF3D1FA8);
-    }
-  }
+  Color get lineColor => AppColors.purple;
 
   String get trafficLabel {
     switch (trafficLevel) {
@@ -109,63 +99,30 @@ class DirectionsRoute {
   }
 }
 
-/// Builds a brand-gradient route line (cyan → blue → purple) as segment polylines.
+/// Builds a violet route line matching the map pin color.
 Set<Polyline> brandGradientPolylines(
   List<LatLng> points, {
   int width = 6,
   int steps = 36,
   String idPrefix = 'brand-route',
+  Color color = AppColors.purple,
 }) {
   if (points.length < 2) {
     return {};
   }
 
-  const colors = [Color(0xFF22D3EE), Color(0xFF4F7CFF), Color(0xFF7C5CFF)];
-  final segmentCount = points.length - 1 < steps ? points.length - 1 : steps;
-  final result = <Polyline>{};
-
-  for (var s = 0; s < segmentCount; s++) {
-    final start = ((s / segmentCount) * (points.length - 1)).floor();
-    var end = (((s + 1) / segmentCount) * (points.length - 1)).ceil();
-    if (end <= start) {
-      end = start + 1;
-    }
-    if (end >= points.length) {
-      end = points.length - 1;
-    }
-
-    final t = segmentCount <= 1 ? 0.0 : s / (segmentCount - 1);
-    final color = _sampleBrandGradient(colors, t);
-
-    result.add(
-      Polyline(
-        polylineId: PolylineId('$idPrefix-$s'),
-        points: points.sublist(start, end + 1),
-        color: color,
-        width: width,
-        startCap: Cap.roundCap,
-        endCap: Cap.roundCap,
-        jointType: JointType.round,
-        geodesic: false,
-      ),
-    );
-  }
-
-  return result;
-}
-
-Color _sampleBrandGradient(List<Color> colors, double t) {
-  if (colors.isEmpty) {
-    return const Color(0xFF7C5CFF);
-  }
-  if (colors.length == 1) {
-    return colors.first;
-  }
-  final clamped = t.clamp(0.0, 1.0);
-  final scaled = clamped * (colors.length - 1);
-  final index = scaled.floor().clamp(0, colors.length - 2);
-  final localT = scaled - index;
-  return Color.lerp(colors[index], colors[index + 1], localT) ?? colors[index];
+  return {
+    Polyline(
+      polylineId: PolylineId(idPrefix),
+      points: points,
+      color: color,
+      width: width,
+      startCap: Cap.roundCap,
+      endCap: Cap.roundCap,
+      jointType: JointType.round,
+      geodesic: false,
+    ),
+  };
 }
 
 RouteTrafficLevel _parseTrafficLevel(String raw) {

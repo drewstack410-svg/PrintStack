@@ -54,6 +54,15 @@ class _DocumentLayoutCanvasPageState extends State<DocumentLayoutCanvasPage> {
   bool _exporting = false;
   String? _titleError;
 
+  bool _guidesEnabled = true;
+  bool _snapEnabled = true;
+  bool _snappedX = false;
+  bool _snappedY = false;
+  bool _snappedRotation = false;
+
+  static const _snapPx = 12.0;
+  static const _snapRadians = 0.08; // ~4.5°
+
   @override
   void initState() {
     super.initState();
@@ -79,11 +88,93 @@ class _DocumentLayoutCanvasPageState extends State<DocumentLayoutCanvasPage> {
       _scale = 1;
       _rotation = 0;
       _offset = Offset.zero;
+      _snappedX = true;
+      _snappedY = true;
+      _snappedRotation = true;
     });
   }
 
+  void _centerImage() {
+    setState(() {
+      _offset = Offset.zero;
+      _snappedX = true;
+      _snappedY = true;
+    });
+  }
+
+  double _normalizeRotation(double radians) {
+    var value = radians;
+    while (value > math.pi) {
+      value -= math.pi * 2;
+    }
+    while (value < -math.pi) {
+      value += math.pi * 2;
+    }
+    return value;
+  }
+
+  double _snapRotation(double radians) {
+    final candidates = <double>[
+      0,
+      math.pi / 2,
+      -math.pi / 2,
+      math.pi,
+      -math.pi,
+    ];
+    final normalized = _normalizeRotation(radians);
+    for (final target in candidates) {
+      if ((normalized - target).abs() <= _snapRadians) {
+        _snappedRotation = true;
+        return target == -math.pi ? math.pi : target;
+      }
+    }
+    _snappedRotation = false;
+    return normalized;
+  }
+
+  Offset _snapOffset(Offset next) {
+    var dx = next.dx;
+    var dy = next.dy;
+    _snappedX = false;
+    _snappedY = false;
+    if (!_snapEnabled) {
+      return next;
+    }
+    if (dx.abs() <= _snapPx) {
+      dx = 0;
+      _snappedX = true;
+    }
+    if (dy.abs() <= _snapPx) {
+      dy = 0;
+      _snappedY = true;
+    }
+    return Offset(dx, dy);
+  }
+
   void _rotateBy(double deltaRadians) {
-    setState(() => _rotation = (_rotation + deltaRadians) % (math.pi * 2));
+    setState(() {
+      final next = _normalizeRotation(_rotation + deltaRadians);
+      _rotation = _snapEnabled ? _snapRotation(next) : next;
+    });
+  }
+
+  void _onScaleUpdate(ScaleUpdateDetails details) {
+    setState(() {
+      final nextScale = (_startScale * details.scale).clamp(0.35, 6.0);
+      final focal = details.localFocalPoint;
+      final last = _lastFocal ?? focal;
+      final delta = focal - last;
+      final rawOffset = _offset + delta;
+      _offset = _snapOffset(rawOffset);
+      _scale = nextScale;
+      _lastFocal = focal;
+    });
+  }
+
+  void _setRotation(double value) {
+    setState(() {
+      _rotation = _snapEnabled ? _snapRotation(value) : _normalizeRotation(value);
+    });
   }
 
   PdfPageFormat get _pdfPageFormat {
