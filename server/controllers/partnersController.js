@@ -7,6 +7,46 @@ const { mapLocation } = require('../lib/location')
 const { DEFAULT_PAPER_SIZES } = require('../lib/paperSizes')
 const { deletePartnerLogo, signedLogoUrl, uploadPartnerLogo } = require('../storage')
 
+function parseConvenienceFee(value) {
+  const amount = Number(value)
+  if (!Number.isFinite(amount) || amount < 0) {
+    return 0
+  }
+  return Math.round(amount * 100) / 100
+}
+
+function parseBool(value, fallback = false) {
+  if (value === undefined || value === null || value === '') {
+    return fallback
+  }
+  if (typeof value === 'boolean') {
+    return value
+  }
+  const normalized = String(value).trim().toLowerCase()
+  if (['1', 'true', 'yes', 'on'].includes(normalized)) {
+    return true
+  }
+  if (['0', 'false', 'no', 'off'].includes(normalized)) {
+    return false
+  }
+  return fallback
+}
+
+function mapServices(raw) {
+  const services = raw && typeof raw === 'object' ? raw : {}
+  return {
+    printing: services.printing !== false,
+    xerox: services.xerox === true,
+  }
+}
+
+function servicesFromBody(body = {}, fallback = { printing: true, xerox: false }) {
+  return {
+    printing: parseBool(body.servicePrinting ?? body.printing, fallback.printing),
+    xerox: parseBool(body.serviceXerox ?? body.xerox, fallback.xerox),
+  }
+}
+
 function mapPartner(doc, logoUrl = '') {
   const data = doc.data() || {}
   return {
@@ -17,6 +57,8 @@ function mapPartner(doc, logoUrl = '') {
     ownerUid: data.ownerUid || '',
     staffUids: Array.isArray(data.staffUids) ? data.staffUids : [],
     location: mapLocation(data.location),
+    convenienceFee: parseConvenienceFee(data.convenienceFee),
+    services: mapServices(data.services),
     createdAt: data.createdAt?.toDate?.()?.toISOString?.() || null,
   }
 }
@@ -68,6 +110,9 @@ async function createPartner(req, res) {
       logoUrl = uploaded.logoUrl
     }
 
+    const convenienceFee = parseConvenienceFee(req.body.convenienceFee)
+    const services = servicesFromBody(req.body)
+
     const partnerDoc = {
       companyName,
       email,
@@ -76,6 +121,8 @@ async function createPartner(req, res) {
       ownerUid: user.uid,
       staffUids: [],
       paperSizes: DEFAULT_PAPER_SIZES.map((size) => ({ ...size })),
+      convenienceFee,
+      services,
       createdBy: req.user.uid,
       createdAt: FieldValue.serverTimestamp(),
     }
@@ -164,11 +211,18 @@ async function updatePartner(req, res) {
       logoUrl = uploaded.logoUrl
     }
 
+    const convenienceFee = parseConvenienceFee(
+      req.body.convenienceFee ?? current.convenienceFee,
+    )
+    const services = servicesFromBody(req.body, mapServices(current.services))
+
     await partnerRef.update({
       companyName,
       email,
       logoPath,
       logoUrl,
+      convenienceFee,
+      services,
     })
 
     await db.collection('users').doc(ownerUid).update({

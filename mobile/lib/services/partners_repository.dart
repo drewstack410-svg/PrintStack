@@ -27,11 +27,14 @@ class PartnersRepository {
     });
   }
 
-  /// Realtime stream of partners that are currently online.
+  /// Realtime stream of partners that are currently online with printing enabled.
   Stream<List<Partner>> watchOnlinePartners() {
     return watchPartners().map(
-      (partners) =>
-          partners.where((p) => p.location?.online == true).toList(growable: false),
+      (partners) => partners
+          .where(
+            (p) => p.location?.online == true && p.services.printing,
+          )
+          .toList(growable: false),
     );
   }
 

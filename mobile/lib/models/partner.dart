@@ -174,6 +174,8 @@ class Partner {
     required this.logoUrl,
     this.location,
     this.paperSizes = const [],
+    this.convenienceFee = 0,
+    this.services = const PartnerServices(),
   });
 
   final String id;
@@ -182,6 +184,8 @@ class Partner {
   final String logoUrl;
   final PartnerLocation? location;
   final List<PaperSize> paperSizes;
+  final double convenienceFee;
+  final PartnerServices services;
 
   static const onlineWindow = Duration(minutes: 5);
 
@@ -208,6 +212,11 @@ class Partner {
       }
     }
 
+    final servicesRaw = data['services'];
+    final services = servicesRaw is Map
+        ? PartnerServices.fromMap(Map<String, dynamic>.from(servicesRaw))
+        : const PartnerServices();
+
     return Partner(
       id: id,
       companyName: (data['companyName'] ?? '').toString(),
@@ -217,6 +226,25 @@ class Partner {
           ? PartnerLocation.fromMap(Map<String, dynamic>.from(locationJson))
           : null,
       paperSizes: paperSizes.isEmpty ? PaperSize.defaults : paperSizes,
+      convenienceFee: (data['convenienceFee'] as num?)?.toDouble() ?? 0,
+      services: services,
+    );
+  }
+}
+
+class PartnerServices {
+  const PartnerServices({
+    this.printing = true,
+    this.xerox = false,
+  });
+
+  final bool printing;
+  final bool xerox;
+
+  factory PartnerServices.fromMap(Map<String, dynamic> json) {
+    return PartnerServices(
+      printing: json['printing'] != false,
+      xerox: json['xerox'] == true,
     );
   }
 }

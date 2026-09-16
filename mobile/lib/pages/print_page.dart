@@ -46,9 +46,10 @@ class _PrintPageState extends State<PrintPage> {
   String _query = '';
   bool _buildingMarkers = false;
   int _routeRequestId = 0;
-  TravelMode _travelMode = TravelMode.drive;
+  TravelMode _travelMode = TravelMode.walk;
   bool _myLocationEnabled = false;
   bool _didIntroFly = false;
+  bool _didAutoSelectNearest = false;
   int _pageIndex = 0;
   LatLng? _myLatLng;
 
@@ -191,6 +192,17 @@ class _PrintPageState extends State<PrintPage> {
         CameraPosition(target: me, zoom: 14.5),
       ),
     );
+    _tryAutoSelectNearest();
+  }
+
+  void _tryAutoSelectNearest() {
+    if (_didAutoSelectNearest || _myLatLng == null || _mappable.isEmpty) {
+      return;
+    }
+    // `_mappable` is distance-sorted when location is known.
+    final nearest = _mappable.first;
+    _didAutoSelectNearest = true;
+    _selectPartner(nearest, animatePage: true);
   }
 
   Future<void> _goToMyLocation() async {
@@ -486,7 +498,11 @@ class _PrintPageState extends State<PrintPage> {
 
         if (orderChanged) {
           _mappable = mappable;
-          if (_selectedId == null && mappable.isNotEmpty) {
+          if (_myLatLng != null &&
+              !_didAutoSelectNearest &&
+              mappable.isNotEmpty) {
+            _selectedId = mappable.first.id;
+          } else if (_selectedId == null && mappable.isNotEmpty) {
             _selectedId = mappable.first.id;
           } else if (_selectedId != null &&
               mappable.every((p) => p.id != _selectedId)) {
@@ -509,6 +525,9 @@ class _PrintPageState extends State<PrintPage> {
                 _pageController.hasClients &&
                 selectedIndex >= 0) {
               _pageController.jumpToPage(selectedIndex);
+            }
+            if (_myLatLng != null) {
+              _tryAutoSelectNearest();
             }
           });
         }
@@ -688,13 +707,15 @@ class _PrintPageState extends State<PrintPage> {
                       (_activeRoute!.etaLabel.isNotEmpty ||
                           _activeRoute!.distanceText.isNotEmpty)) ...[
                     const SizedBox(height: 6),
-                    _RouteTrafficChip(route: _activeRoute!),
-                  ],
-                  if (!searching) ...[
-                    const SizedBox(height: 8),
-                    _TravelModeBar(
-                      selected: _travelMode,
-                      onChanged: _setTravelMode,
+                    _RouteTrafficChip(
+                      route: _activeRoute!,
+                      onLocate: _goToMyLocation,
+                    ),
+                  ] else if (!searching) ...[
+                    const SizedBox(height: 6),
+                    Align(
+                      alignment: Alignment.centerRight,
+                      child: _LocateChip(onPressed: _goToMyLocation),
                     ),
                   ],
                 ],
@@ -702,14 +723,11 @@ class _PrintPageState extends State<PrintPage> {
             ),
             if (!searching)
               Positioned(
-                right: 14,
+                right: 12,
                 bottom: carouselPartners.isEmpty ? 24 : 148,
-                child: FloatingActionButton.small(
-                  heroTag: 'print-my-location',
-                  backgroundColor: Colors.white,
-                  foregroundColor: AppColors.purpleDark,
-                  onPressed: _goToMyLocation,
-                  child: const Icon(Icons.my_location),
+                child: _TravelModeFab(
+                  selected: _travelMode,
+                  onChanged: _setTravelMode,
                 ),
               ),
             if (snapshot.connectionState == ConnectionState.waiting &&
@@ -1094,9 +1112,13 @@ class _OnlineGlowPingState extends State<_OnlineGlowPing>
 }
 
 class _RouteTrafficChip extends StatelessWidget {
-  const _RouteTrafficChip({required this.route});
+  const _RouteTrafficChip({
+    required this.route,
+    required this.onLocate,
+  });
 
   final DirectionsRoute route;
+  final VoidCallback onLocate;
 
   @override
   Widget build(BuildContext context) {
@@ -1111,7 +1133,7 @@ class _RouteTrafficChip extends StatelessWidget {
       elevation: 2,
       borderRadius: BorderRadius.circular(12),
       child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+        padding: const EdgeInsets.fromLTRB(12, 4, 4, 4),
         child: Row(
           children: [
             Container(
@@ -1135,10 +1157,15 @@ class _RouteTrafficChip extends StatelessWidget {
                 ),
               ),
             ),
-            const Icon(
-              Icons.traffic_rounded,
-              size: 16,
-              color: AppColors.muted,
+            IconButton(
+              tooltip: 'My location',
+              onPressed: onLocate,
+              visualDensity: VisualDensity.compact,
+              constraints: const BoxConstraints(minWidth: 36, minHeight: 36),
+              padding: EdgeInsets.zero,
+              iconSize: 20,
+              color: AppColors.purpleDark,
+              icon: const Icon(Icons.my_location),
             ),
           ],
         ),
@@ -1147,8 +1174,33 @@ class _RouteTrafficChip extends StatelessWidget {
   }
 }
 
-class _TravelModeBar extends StatelessWidget {
-  const _TravelModeBar({
+class _LocateChip extends StatelessWidget {
+  const _LocateChip({required this.onPressed});
+
+  final VoidCallback onPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: Colors.white,
+      elevation: 2,
+      borderRadius: BorderRadius.circular(12),
+      child: IconButton(
+        tooltip: 'My location',
+        onPressed: onPressed,
+        visualDensity: VisualDensity.compact,
+        constraints: const BoxConstraints(minWidth: 40, minHeight: 40),
+        padding: EdgeInsets.zero,
+        iconSize: 20,
+        color: AppColors.purpleDark,
+        icon: const Icon(Icons.my_location),
+      ),
+    );
+  }
+}
+
+class _TravelModeFab extends StatelessWidget {
+  const _TravelModeFab({
     required this.selected,
     required this.onChanged,
   });
@@ -1160,49 +1212,40 @@ class _TravelModeBar extends StatelessWidget {
   Widget build(BuildContext context) {
     return Material(
       color: Colors.white,
-      elevation: 3,
-      borderRadius: BorderRadius.circular(12),
+      elevation: 4,
+      shadowColor: Colors.black38,
+      borderRadius: BorderRadius.circular(16),
       child: Padding(
-        padding: const EdgeInsets.all(4),
-        child: Row(
+        padding: const EdgeInsets.symmetric(vertical: 4, horizontal: 4),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
           children: [
             for (final mode in TravelMode.values)
-              Expanded(
-                child: InkWell(
-                  borderRadius: BorderRadius.circular(9),
-                  onTap: () => onChanged(mode),
-                  child: AnimatedContainer(
-                    duration: const Duration(milliseconds: 160),
-                    curve: Curves.easeOut,
-                    padding: const EdgeInsets.symmetric(vertical: 8),
-                    decoration: BoxDecoration(
-                      color: selected == mode
-                          ? AppColors.purple.withValues(alpha: 0.12)
-                          : Colors.transparent,
-                      borderRadius: BorderRadius.circular(9),
-                    ),
-                    child: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Icon(
-                          mode.icon,
-                          size: 18,
-                          color: selected == mode
-                              ? AppColors.purple
-                              : AppColors.muted,
-                        ),
-                        const SizedBox(height: 2),
-                        Text(
-                          mode.label,
-                          style: TextStyle(
-                            fontSize: 10.5,
-                            fontWeight: FontWeight.w800,
-                            color: selected == mode
-                                ? AppColors.navy
-                                : AppColors.muted,
-                          ),
-                        ),
-                      ],
+              Padding(
+                padding: const EdgeInsets.symmetric(vertical: 2),
+                child: Tooltip(
+                  message: mode.label,
+                  child: InkWell(
+                    borderRadius: BorderRadius.circular(12),
+                    onTap: () => onChanged(mode),
+                    child: AnimatedContainer(
+                      duration: const Duration(milliseconds: 160),
+                      curve: Curves.easeOut,
+                      width: 40,
+                      height: 40,
+                      decoration: BoxDecoration(
+                        color: selected == mode
+                            ? AppColors.purple.withValues(alpha: 0.14)
+                            : Colors.transparent,
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: Icon(
+                        mode.icon,
+                        size: 20,
+                        color: selected == mode
+                            ? AppColors.purple
+                            : AppColors.muted,
+                      ),
                     ),
                   ),
                 ),

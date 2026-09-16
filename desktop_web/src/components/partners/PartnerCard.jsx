@@ -81,6 +81,18 @@ export default function PartnerCard({ partner, onEdit, onDelete }) {
           <Stack direction="row" spacing={0.75} flexWrap="wrap" useFlexGap>
             <Chip size="small" label={formatAddedOn(partner.createdAt)} />
             <Chip size="small" label={`${staffCount} staff`} />
+            <Chip
+              size="small"
+              color="secondary"
+              variant="outlined"
+              label={`Fee ₱${Number(partner.convenienceFee || 0).toFixed(2)}`}
+            />
+            {partner.services?.printing !== false ? (
+              <Chip size="small" color="primary" variant="outlined" label="Printing" />
+            ) : null}
+            {partner.services?.xerox ? (
+              <Chip size="small" color="primary" variant="outlined" label="Xerox" />
+            ) : null}
             {partner.location?.label ? (
               <Chip size="small" color={partner.location.online ? 'primary' : 'default'} label={partner.location.label} />
             ) : null}

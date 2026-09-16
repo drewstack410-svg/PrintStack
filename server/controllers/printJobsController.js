@@ -163,6 +163,14 @@ function mapJob(doc) {
   const data = doc.data() || {}
   const documents = documentsFromData(data)
   const aggregates = aggregateFromDocuments(documents)
+  const convenienceFee = Math.max(0, Number(data.convenienceFee) || 0)
+  const totalPrice = Number(
+    (
+      (Number.isFinite(Number(data.totalPrice))
+        ? Number(data.totalPrice)
+        : aggregates.totalPrice + convenienceFee)
+    ).toFixed(2),
+  )
 
   return {
     id: doc.id,
@@ -187,7 +195,8 @@ function mapJob(doc) {
     pricePerPiece: aggregates.pricePerPiece,
     priceBw: aggregates.priceBw,
     priceColor: aggregates.priceColor,
-    totalPrice: aggregates.totalPrice,
+    convenienceFee,
+    totalPrice,
     localPath: aggregates.localPath,
     customerUid: data.customerUid || '',
     customerEmail: data.customerEmail || '',
@@ -381,6 +390,11 @@ async function createCustomerPrintJob(req, res) {
     return
   }
 
+  if (partnerData.services && partnerData.services.printing === false) {
+    res.status(403).json({ error: 'Printing is not enabled for this partner' })
+    return
+  }
+
   const paperSizes = normalizePaperSizes(partnerData.paperSizes)
   const rawDocuments = Array.isArray(req.body.documents)
     ? req.body.documents
@@ -417,12 +431,19 @@ async function createCustomerPrintJob(req, res) {
     .join(' ')
     .trim()
   const orderNumber = await allocateOrderNumber(partnerId)
-  const needsPayment = Number(aggregates.totalPrice) >= 1
+  const convenienceFee = Math.max(
+    0,
+    Math.round((Number(partnerData.convenienceFee) || 0) * 100) / 100,
+  )
+  const totalPrice = Number((aggregates.totalPrice + convenienceFee).toFixed(2))
+  const needsPayment = totalPrice >= 1
 
   const ref = jobsRef(partnerId).doc()
   const job = {
     orderNumber,
     ...aggregates,
+    totalPrice,
+    convenienceFee,
     documents,
     printerName: '',
     deviceName: '',
@@ -505,7 +526,11 @@ async function updatePrintJob(req, res) {
     updates.fileUrl = aggregates.fileUrl
     updates.filePath = aggregates.filePath
     updates.localPath = aggregates.localPath
-    updates.totalPrice = aggregates.totalPrice
+    updates.totalPrice = Number(
+      (
+        aggregates.totalPrice + (Number(existing.convenienceFee) || 0)
+      ).toFixed(2),
+    )
   } else if (req.body.localPath !== undefined) {
     updates.localPath = String(req.body.localPath || '').trim()
     if (documents.length === 1) {

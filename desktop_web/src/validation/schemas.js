@@ -53,7 +53,19 @@ const partnerLogoField = yup
     (file) => !file || file.size <= 5 * 1024 * 1024,
   )
 
-export const partnerCreateSchema = partnerSchema
+export const partnerCreateSchema = partnerSchema.shape({
+  convenienceFee: yup
+    .number()
+    .transform((value, original) =>
+      original === '' || original === null || original === undefined
+        ? 0
+        : value)
+    .typeError('Enter a valid fee')
+    .min(0, 'Fee cannot be negative')
+    .required('Convenience fee is required'),
+  servicePrinting: yup.boolean().required(),
+  serviceXerox: yup.boolean().required(),
+})
 
 export const partnerUpdateSchema = yup.object({
   companyName: yup.string().trim().required('Company name is required'),
@@ -67,6 +79,17 @@ export const partnerUpdateSchema = yup.object({
     otherwise: (schema) => schema.strip(),
   }),
   logo: partnerLogoField,
+  convenienceFee: yup
+    .number()
+    .transform((value, original) =>
+      original === '' || original === null || original === undefined
+        ? 0
+        : value)
+    .typeError('Enter a valid fee')
+    .min(0, 'Fee cannot be negative')
+    .required('Convenience fee is required'),
+  servicePrinting: yup.boolean().required(),
+  serviceXerox: yup.boolean().required(),
 })
 
 export const loginInitialValues = {
@@ -80,6 +103,9 @@ export const partnerInitialValues = {
   password: '',
   confirmPassword: '',
   logo: null,
+  convenienceFee: 0,
+  servicePrinting: true,
+  serviceXerox: false,
 }
 
 const staffNameFields = {

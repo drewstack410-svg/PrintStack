@@ -38,9 +38,7 @@ class PartnerMapMarkers {
           icon: icon,
           zIndexInt: partner.id == selectedId ? 2 : 1,
           infoWindow: InfoWindow(
-            title: partner.companyName.isEmpty
-                ? 'Shop'
-                : partner.companyName,
+            title: partner.companyName.isEmpty ? 'Shop' : partner.companyName,
             snippet: loc.label,
           ),
           onTap: () => onTap(partner),
@@ -66,10 +64,7 @@ class PartnerMapMarkers {
       selected: selected,
       online: partner.location?.online == true,
     );
-    final descriptor = BitmapDescriptor.bytes(
-      bytes,
-      imagePixelRatio: 2.0,
-    );
+    final descriptor = BitmapDescriptor.bytes(bytes, imagePixelRatio: 2.0);
     _cache[cacheKey] = descriptor;
     return descriptor;
   }
@@ -108,7 +103,8 @@ class PartnerMapMarkers {
     canvas.drawCircle(center, radius + 1.2, Paint()..color = Colors.white);
 
     // Logo / initial fill.
-    final clip = Path()..addOval(Rect.fromCircle(center: center, radius: radius));
+    final clip = Path()
+      ..addOval(Rect.fromCircle(center: center, radius: radius));
     canvas.save();
     canvas.clipPath(clip);
 
@@ -128,15 +124,16 @@ class PartnerMapMarkers {
         ).createShader(Rect.fromCircle(center: center, radius: radius));
       canvas.drawCircle(center, radius, fill);
       final initial = name.trim().isEmpty ? 'P' : name.trim()[0].toUpperCase();
-      final builder = ui.ParagraphBuilder(
-        ui.ParagraphStyle(
-          textAlign: TextAlign.center,
-          fontSize: 22,
-          fontWeight: FontWeight.w800,
-        ),
-      )
-        ..pushStyle(ui.TextStyle(color: Colors.white))
-        ..addText(initial);
+      final builder =
+          ui.ParagraphBuilder(
+              ui.ParagraphStyle(
+                textAlign: TextAlign.center,
+                fontSize: 22,
+                fontWeight: FontWeight.w800,
+              ),
+            )
+            ..pushStyle(ui.TextStyle(color: Colors.white))
+            ..addText(initial);
       final paragraph = builder.build()
         ..layout(ui.ParagraphConstraints(width: radius * 2));
       canvas.drawParagraph(
@@ -147,12 +144,16 @@ class PartnerMapMarkers {
     canvas.restore();
 
     // Online / offline badge.
-    final badgeCenter = Offset(center.dx + radius * 0.72, center.dy + radius * 0.72);
+    final badgeCenter = Offset(
+      center.dx + radius * 0.72,
+      center.dy + radius * 0.72,
+    );
     canvas.drawCircle(badgeCenter, 8, Paint()..color = Colors.white);
     canvas.drawCircle(
       badgeCenter,
       6,
-      Paint()..color = online ? const Color(0xFF2E7D32) : const Color(0xFF9E9E9E),
+      Paint()
+        ..color = online ? const Color(0xFF2E7D32) : const Color(0xFF9E9E9E),
     );
 
     // Pin tip.
@@ -182,11 +183,16 @@ class PartnerMapMarkers {
       return null;
     }
     try {
-      final response = await http.get(Uri.parse(url)).timeout(const Duration(seconds: 6));
+      final response = await http
+          .get(Uri.parse(url))
+          .timeout(const Duration(seconds: 6));
       if (response.statusCode < 200 || response.statusCode >= 300) {
         return null;
       }
-      final codec = await ui.instantiateImageCodec(response.bodyBytes, targetWidth: 96);
+      final codec = await ui.instantiateImageCodec(
+        response.bodyBytes,
+        targetWidth: 96,
+      );
       final frame = await codec.getNextFrame();
       return frame.image;
     } catch (_) {

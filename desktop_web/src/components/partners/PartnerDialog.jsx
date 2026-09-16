@@ -1,7 +1,20 @@
 import { useEffect, useState } from 'react'
 import AddIcon from '@mui/icons-material/Add'
 import { Form, Formik } from 'formik'
-import { Alert, Box, Button, Dialog, DialogActions, DialogContent, DialogTitle, Stack, TextField, Typography } from '@mui/material'
+import {
+  Alert,
+  Box,
+  Button,
+  Dialog,
+  DialogActions,
+  DialogContent,
+  DialogTitle,
+  FormControlLabel,
+  Stack,
+  Switch,
+  TextField,
+  Typography,
+} from '@mui/material'
 import { partnerCreateSchema, partnerInitialValues, partnerUpdateSchema } from '../../validation/schemas'
 import PasswordField from '../common/PasswordField'
 import LogoDropzone from './LogoDropzone'
@@ -27,6 +40,9 @@ export default function PartnerDialog({ open, partner, onClose, onSubmit }) {
         password: '',
         confirmPassword: '',
         logo: null,
+        convenienceFee: Number(partner.convenienceFee) || 0,
+        servicePrinting: partner.services?.printing !== false,
+        serviceXerox: partner.services?.xerox === true,
       }
     : partnerInitialValues
 
@@ -43,6 +59,9 @@ export default function PartnerDialog({ open, partner, onClose, onSubmit }) {
             const data = new FormData()
             data.append('companyName', values.companyName.trim())
             data.append('email', values.email.trim())
+            data.append('convenienceFee', String(Number(values.convenienceFee) || 0))
+            data.append('servicePrinting', values.servicePrinting ? 'true' : 'false')
+            data.append('serviceXerox', values.serviceXerox ? 'true' : 'false')
             if (values.password) {
               data.append('password', values.password)
             }
@@ -201,6 +220,63 @@ function PartnerFormBody({
                 autoComplete="new-password"
                 required={false}
               />
+            </Stack>
+          </Box>
+
+          <Box
+            sx={{
+              border: 1,
+              borderColor: 'divider',
+              borderRadius: 2,
+              px: 1.5,
+              py: 1.25,
+            }}
+          >
+            <Stack spacing={1.25}>
+              <Typography variant="subtitle2" fontWeight={700}>
+                Platform settings
+              </Typography>
+              <TextField
+                size="small"
+                name="convenienceFee"
+                label="Convenience fee (₱)"
+                type="number"
+                inputProps={{ min: 0, step: '0.01' }}
+                value={values.convenienceFee}
+                onChange={handleChange}
+                onBlur={handleBlur}
+                error={Boolean(touched.convenienceFee && errors.convenienceFee)}
+                helperText={
+                  (touched.convenienceFee && errors.convenienceFee) ||
+                  'Charged per order on top of partner pricing'
+                }
+                fullWidth
+              />
+              <Stack spacing={0.25}>
+                <Typography variant="body2" color="text.secondary" fontWeight={600}>
+                  Enabled services
+                </Typography>
+                <FormControlLabel
+                  control={
+                    <Switch
+                      checked={Boolean(values.servicePrinting)}
+                      onChange={(event) => setFieldValue('servicePrinting', event.target.checked)}
+                      disabled={isSubmitting}
+                    />
+                  }
+                  label="Printing"
+                />
+                <FormControlLabel
+                  control={
+                    <Switch
+                      checked={Boolean(values.serviceXerox)}
+                      onChange={(event) => setFieldValue('serviceXerox', event.target.checked)}
+                      disabled={isSubmitting}
+                    />
+                  }
+                  label="Xerox"
+                />
+              </Stack>
             </Stack>
           </Box>
         </Stack>

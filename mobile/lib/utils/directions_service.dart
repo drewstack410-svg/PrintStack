@@ -62,7 +62,7 @@ class DirectionsRoute {
     this.trafficLevel = RouteTrafficLevel.unknown,
     this.hasTraffic = false,
     this.source = '',
-    this.travelMode = TravelMode.drive,
+    this.travelMode = TravelMode.walk,
   });
 
   final List<LatLng> points;
@@ -188,7 +188,7 @@ class DirectionsService {
   static Future<DirectionsRoute?> fetchRoute({
     required LatLng origin,
     required LatLng destination,
-    TravelMode mode = TravelMode.drive,
+    TravelMode mode = TravelMode.walk,
   }) async {
     try {
       final route = await ApiClient.instance.fetchRoute(

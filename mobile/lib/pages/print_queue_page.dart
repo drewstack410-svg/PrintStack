@@ -49,8 +49,13 @@ class _PrintQueuePageState extends State<PrintQueuePage> {
 
   bool get _shopOnline => _livePartner?.location?.online == true;
 
-  double get _orderTotal =>
+  double get _documentsTotal =>
       _documents.fold<double>(0, (sum, doc) => sum + doc.lineTotal);
+
+  double get _convenienceFee =>
+      widget.partner.convenienceFee < 0 ? 0 : widget.partner.convenienceFee;
+
+  double get _orderTotal => _documentsTotal + _convenienceFee;
 
   void _removeAt(int index) {
     setState(() {
@@ -304,6 +309,17 @@ class _PrintQueuePageState extends State<PrintQueuePage> {
                                   fontWeight: FontWeight.w600,
                                 ),
                               ),
+                              if (_convenienceFee > 0) ...[
+                                const SizedBox(height: 2),
+                                Text(
+                                  'Incl. ₱${_convenienceFee.toStringAsFixed(2)} convenience fee',
+                                  style: const TextStyle(
+                                    color: AppColors.muted,
+                                    fontSize: 11,
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                                ),
+                              ],
                               const SizedBox(height: 2),
                               Text(
                                 '₱${_orderTotal.toStringAsFixed(2)}',
