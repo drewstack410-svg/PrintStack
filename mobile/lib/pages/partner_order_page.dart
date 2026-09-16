@@ -343,19 +343,19 @@ class _PartnerOrderPageState extends State<PartnerOrderPage> {
             child: SafeArea(
               top: false,
               child: Padding(
-                padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
+                padding: const EdgeInsets.fromLTRB(12, 8, 12, 8),
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
                   children: [
                     if (_picked != null) ...[
                       Container(
                         padding: const EdgeInsets.symmetric(
-                          horizontal: 10,
-                          vertical: 4,
+                          horizontal: 8,
+                          vertical: 0,
                         ),
                         decoration: BoxDecoration(
                           color: AppColors.mist,
-                          borderRadius: BorderRadius.circular(14),
+                          borderRadius: BorderRadius.circular(10),
                           border: Border.all(
                             color: AppColors.purple.withValues(alpha: 0.12),
                           ),
@@ -366,25 +366,31 @@ class _PartnerOrderPageState extends State<PartnerOrderPage> {
                               'Copies',
                               style: TextStyle(
                                 fontWeight: FontWeight.w800,
-                                fontSize: 14,
+                                fontSize: 12,
                                 color: AppColors.navy,
                               ),
                             ),
                             const Spacer(),
                             IconButton(
                               visualDensity: VisualDensity.compact,
+                              constraints: const BoxConstraints(
+                                minWidth: 32,
+                                minHeight: 32,
+                              ),
+                              padding: EdgeInsets.zero,
+                              iconSize: 18,
                               onPressed: _copies <= 1
                                   ? null
                                   : () => setState(() => _copies -= 1),
                               icon: const Icon(Icons.remove_circle_outline),
                             ),
                             SizedBox(
-                              width: 36,
+                              width: 28,
                               child: Text(
                                 '$_copies',
                                 textAlign: TextAlign.center,
                                 style: const TextStyle(
-                                  fontSize: 18,
+                                  fontSize: 14,
                                   fontWeight: FontWeight.w800,
                                   color: AppColors.navy,
                                 ),
@@ -392,6 +398,12 @@ class _PartnerOrderPageState extends State<PartnerOrderPage> {
                             ),
                             IconButton(
                               visualDensity: VisualDensity.compact,
+                              constraints: const BoxConstraints(
+                                minWidth: 32,
+                                minHeight: 32,
+                              ),
+                              padding: EdgeInsets.zero,
+                              iconSize: 18,
                               onPressed: _copies >= 50
                                   ? null
                                   : () => setState(() => _copies += 1),
@@ -401,15 +413,15 @@ class _PartnerOrderPageState extends State<PartnerOrderPage> {
                         ),
                       ),
                       if (_colorPages > 0) ...[
-                        const SizedBox(height: 8),
+                        const SizedBox(height: 6),
                         Container(
                           padding: const EdgeInsets.symmetric(
-                            horizontal: 10,
-                            vertical: 2,
+                            horizontal: 8,
+                            vertical: 0,
                           ),
                           decoration: BoxDecoration(
                             color: AppColors.mist,
-                            borderRadius: BorderRadius.circular(14),
+                            borderRadius: BorderRadius.circular(10),
                             border: Border.all(
                               color: AppColors.purple.withValues(alpha: 0.12),
                             ),
@@ -417,6 +429,7 @@ class _PartnerOrderPageState extends State<PartnerOrderPage> {
                           child: SwitchListTile.adaptive(
                             contentPadding: EdgeInsets.zero,
                             dense: true,
+                            visualDensity: VisualDensity.compact,
                             value: _printColorAsBw,
                             onChanged: (value) {
                               setState(() => _printColorAsBw = value);
@@ -425,7 +438,7 @@ class _PartnerOrderPageState extends State<PartnerOrderPage> {
                               'Print color as B&W',
                               style: TextStyle(
                                 fontWeight: FontWeight.w800,
-                                fontSize: 14,
+                                fontSize: 12,
                                 color: AppColors.navy,
                               ),
                             ),
@@ -435,13 +448,13 @@ class _PartnerOrderPageState extends State<PartnerOrderPage> {
                                   : '$_colorPages color page${_colorPages == 1 ? '' : 's'} at color price',
                               style: const TextStyle(
                                 color: AppColors.muted,
-                                fontSize: 12,
+                                fontSize: 10,
                               ),
                             ),
                           ),
                         ),
                       ],
-                      const SizedBox(height: 10),
+                      const SizedBox(height: 6),
                     ],
                     Row(
                       children: [
@@ -454,15 +467,14 @@ class _PartnerOrderPageState extends State<PartnerOrderPage> {
                                 'Estimated total',
                                 style: TextStyle(
                                   color: AppColors.muted,
-                                  fontSize: 12,
+                                  fontSize: 10,
                                   fontWeight: FontWeight.w600,
                                 ),
                               ),
-                              const SizedBox(height: 2),
                               Text(
                                 '₱${_currentTotal.toStringAsFixed(2)}',
                                 style: const TextStyle(
-                                  fontSize: 22,
+                                  fontSize: 18,
                                   fontWeight: FontWeight.w800,
                                   color: AppColors.purple,
                                 ),
@@ -471,7 +483,7 @@ class _PartnerOrderPageState extends State<PartnerOrderPage> {
                           ),
                         ),
                         SizedBox(
-                          width: 148,
+                          width: 120,
                           child: GradientButton(
                             label: !online
                                 ? 'Shop offline'
@@ -510,66 +522,66 @@ class _BigUploadButton extends StatelessWidget {
   Widget build(BuildContext context) {
     return Material(
       color: Colors.white,
-      borderRadius: BorderRadius.circular(28),
-      elevation: 2,
+      borderRadius: BorderRadius.circular(18),
+      elevation: 1,
       shadowColor: Colors.black26,
       child: InkWell(
-        borderRadius: BorderRadius.circular(28),
+        borderRadius: BorderRadius.circular(18),
         onTap: onTap,
         child: Container(
           width: double.infinity,
           decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(28),
+            borderRadius: BorderRadius.circular(18),
             border: Border.all(
               color: AppColors.purple.withValues(alpha: 0.28),
-              width: 2,
+              width: 1.5,
             ),
           ),
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
               Container(
-                width: 108,
-                height: 108,
+                width: 64,
+                height: 64,
                 decoration: BoxDecoration(
                   shape: BoxShape.circle,
                   gradient: AppTheme.brandGradient,
                   boxShadow: [
                     BoxShadow(
-                      color: AppColors.purple.withValues(alpha: 0.28),
-                      blurRadius: 24,
-                      offset: const Offset(0, 10),
+                      color: AppColors.purple.withValues(alpha: 0.22),
+                      blurRadius: 12,
+                      offset: const Offset(0, 5),
                     ),
                   ],
                 ),
                 child: busy
                     ? const Padding(
-                        padding: EdgeInsets.all(34),
+                        padding: EdgeInsets.all(18),
                         child: CircularProgressIndicator(
-                          strokeWidth: 3,
+                          strokeWidth: 2.5,
                           color: Colors.white,
                         ),
                       )
                     : const Icon(
                         Icons.upload_file_rounded,
-                        size: 48,
+                        size: 28,
                         color: Colors.white,
                       ),
               ),
-              const SizedBox(height: 28),
+              const SizedBox(height: 14),
               Text(
                 label,
                 style: const TextStyle(
-                  fontSize: 26,
+                  fontSize: 16,
                   fontWeight: FontWeight.w900,
                   color: AppColors.navy,
                 ),
               ),
-              const SizedBox(height: 10),
+              const SizedBox(height: 4),
               Text(
                 'Tap to select a PDF file',
                 style: TextStyle(
-                  fontSize: 15,
+                  fontSize: 12,
                   color: AppColors.muted.withValues(alpha: 0.95),
                   fontWeight: FontWeight.w600,
                 ),
@@ -769,32 +781,32 @@ class _DocumentPreview extends StatelessWidget {
             ),
           ),
         Positioned(
-          left: 12,
-          top: 12,
-          right: 12,
+          left: 10,
+          top: 10,
+          right: 10,
           child: Row(
             children: [
               Flexible(
                 child: Material(
                   color: Colors.white.withValues(alpha: 0.94),
                   borderRadius: BorderRadius.circular(999),
-                  elevation: 3,
+                  elevation: 2,
                   child: Padding(
                     padding: const EdgeInsets.symmetric(
-                      horizontal: 12,
-                      vertical: 8,
+                      horizontal: 8,
+                      vertical: 5,
                     ),
                     child: Row(
                       mainAxisSize: MainAxisSize.min,
                       children: [
                         Icon(
                           Icons.crop_free,
-                          size: 16,
+                          size: 13,
                           color: sizeMatched
                               ? AppColors.purple
                               : AppColors.muted,
                         ),
-                        const SizedBox(width: 6),
+                        const SizedBox(width: 4),
                         Flexible(
                           child: Text(
                             sizeMatched && sizeName != null
@@ -805,7 +817,7 @@ class _DocumentPreview extends StatelessWidget {
                             style: const TextStyle(
                               fontWeight: FontWeight.w800,
                               color: AppColors.navy,
-                              fontSize: 12,
+                              fontSize: 10,
                             ),
                           ),
                         ),
@@ -815,28 +827,28 @@ class _DocumentPreview extends StatelessWidget {
                 ),
               ),
               if (printColorAsBw) ...[
-                const SizedBox(width: 8),
+                const SizedBox(width: 6),
                 Material(
                   color: AppColors.navy.withValues(alpha: 0.92),
                   borderRadius: BorderRadius.circular(999),
-                  elevation: 3,
+                  elevation: 2,
                   child: const Padding(
-                    padding: EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                    padding: EdgeInsets.symmetric(horizontal: 8, vertical: 5),
                     child: Row(
                       mainAxisSize: MainAxisSize.min,
                       children: [
                         Icon(
                           Icons.filter_b_and_w,
-                          size: 14,
+                          size: 12,
                           color: Colors.white,
                         ),
-                        SizedBox(width: 5),
+                        SizedBox(width: 4),
                         Text(
-                          'B&W preview',
+                          'B&W',
                           style: TextStyle(
                             color: Colors.white,
                             fontWeight: FontWeight.w800,
-                            fontSize: 11,
+                            fontSize: 10,
                           ),
                         ),
                       ],
@@ -844,21 +856,35 @@ class _DocumentPreview extends StatelessWidget {
                   ),
                 ),
               ],
-              const SizedBox(width: 8),
+              const SizedBox(width: 6),
               Material(
                 color: Colors.white.withValues(alpha: 0.94),
                 borderRadius: BorderRadius.circular(999),
-                elevation: 3,
+                elevation: 2,
                 child: Row(
                   mainAxisSize: MainAxisSize.min,
                   children: [
                     IconButton(
                       tooltip: 'Change',
+                      visualDensity: VisualDensity.compact,
+                      constraints: const BoxConstraints(
+                        minWidth: 30,
+                        minHeight: 30,
+                      ),
+                      padding: EdgeInsets.zero,
+                      iconSize: 18,
                       onPressed: onChange,
                       icon: const Icon(Icons.swap_horiz),
                     ),
                     IconButton(
                       tooltip: 'Remove',
+                      visualDensity: VisualDensity.compact,
+                      constraints: const BoxConstraints(
+                        minWidth: 30,
+                        minHeight: 30,
+                      ),
+                      padding: EdgeInsets.zero,
+                      iconSize: 18,
                       onPressed: onClear,
                       icon: const Icon(Icons.close),
                     ),
@@ -870,8 +896,8 @@ class _DocumentPreview extends StatelessWidget {
         ),
         if (!reading)
           Positioned(
-            right: 14,
-            bottom: 14,
+            right: 10,
+            bottom: 10,
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
@@ -889,7 +915,7 @@ class _DocumentPreview extends StatelessWidget {
                       ? null
                       : onFilterBw,
                 ),
-                const SizedBox(height: 10),
+                const SizedBox(height: 6),
                 _CountBadgeIcon(
                   icon: Icons.palette_outlined,
                   count: previewColorPages,
@@ -954,15 +980,15 @@ class _CountBadgeIcon extends StatelessWidget {
               label: Text(
                 '$count',
                 style: const TextStyle(
-                  fontSize: 10,
+                  fontSize: 9,
                   fontWeight: FontWeight.w800,
                 ),
               ),
               backgroundColor: color,
               child: SizedBox(
-                width: 46,
-                height: 46,
-                child: Icon(icon, color: color),
+                width: 34,
+                height: 34,
+                child: Icon(icon, size: 18, color: color),
               ),
             ),
           ),

@@ -299,6 +299,7 @@ class ApiClient {
     required double fromLng,
     required double toLat,
     required double toLng,
+    String mode = 'drive',
   }) async {
     final payload = await _request(
       'GET',
@@ -308,6 +309,7 @@ class ApiClient {
         'fromLng': fromLng.toString(),
         'toLat': toLat.toString(),
         'toLng': toLng.toString(),
+        'mode': mode,
       },
     );
     final route = payload['route'];

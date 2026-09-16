@@ -45,7 +45,8 @@ class _PrintPageState extends State<PrintPage> {
   String? _selectedId;
   String _query = '';
   bool _buildingMarkers = false;
-  bool _buildingRoute = false;
+  int _routeRequestId = 0;
+  TravelMode _travelMode = TravelMode.drive;
   bool _myLocationEnabled = false;
   bool _didIntroFly = false;
   int _pageIndex = 0;
@@ -322,13 +323,14 @@ class _PrintPageState extends State<PrintPage> {
       return;
     }
     final dest = LatLng(destination.lat, destination.lng);
+    final requestId = ++_routeRequestId;
 
     if (_myLatLng == null && _myLocationEnabled == false) {
       await _enableMyLocation();
     }
     final origin = _myLatLng;
     if (origin == null) {
-      if (mounted) {
+      if (mounted && requestId == _routeRequestId) {
         setState(() {
           _polylines = {};
           _activeRoute = null;
@@ -338,28 +340,51 @@ class _PrintPageState extends State<PrintPage> {
       return;
     }
 
-    if (_buildingRoute) {
-      return;
-    }
-    _buildingRoute = true;
     try {
       final route = await DirectionsService.fetchRoute(
         origin: origin,
         destination: dest,
+        mode: _travelMode,
       );
-      if (!mounted || route == null) {
+      if (!mounted || requestId != _routeRequestId || route == null) {
         return;
       }
 
       setState(() {
         _activeRoute = route;
-        _polylines = brandGradientPolylines(route.points);
+        _polylines = brandGradientPolylines(
+          route.points,
+          idPrefix: 'brand-route-${_travelMode.apiValue}',
+        );
       });
 
       await _fitRoute(route.points);
-    } finally {
-      _buildingRoute = false;
+    } catch (error) {
+      debugPrint('Route draw failed: $error');
     }
+  }
+
+  void _setTravelMode(TravelMode mode) {
+    if (_travelMode == mode) {
+      return;
+    }
+    setState(() => _travelMode = mode);
+    final selected = _selectedPartner;
+    if (selected != null) {
+      unawaited(_drawRouteTo(selected));
+    }
+  }
+
+  Partner? get _selectedPartner {
+    if (_selectedId == null) {
+      return null;
+    }
+    for (final partner in _mappable) {
+      if (partner.id == _selectedId) {
+        return partner;
+      }
+    }
+    return null;
   }
 
   Future<void> _fitRoute(List<LatLng> points) async {
@@ -664,6 +689,13 @@ class _PrintPageState extends State<PrintPage> {
                           _activeRoute!.distanceText.isNotEmpty)) ...[
                     const SizedBox(height: 6),
                     _RouteTrafficChip(route: _activeRoute!),
+                  ],
+                  if (!searching) ...[
+                    const SizedBox(height: 8),
+                    _TravelModeBar(
+                      selected: _travelMode,
+                      onChanged: _setTravelMode,
+                    ),
                   ],
                 ],
               ),
@@ -1108,6 +1140,73 @@ class _RouteTrafficChip extends StatelessWidget {
               size: 16,
               color: AppColors.muted,
             ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _TravelModeBar extends StatelessWidget {
+  const _TravelModeBar({
+    required this.selected,
+    required this.onChanged,
+  });
+
+  final TravelMode selected;
+  final ValueChanged<TravelMode> onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: Colors.white,
+      elevation: 3,
+      borderRadius: BorderRadius.circular(12),
+      child: Padding(
+        padding: const EdgeInsets.all(4),
+        child: Row(
+          children: [
+            for (final mode in TravelMode.values)
+              Expanded(
+                child: InkWell(
+                  borderRadius: BorderRadius.circular(9),
+                  onTap: () => onChanged(mode),
+                  child: AnimatedContainer(
+                    duration: const Duration(milliseconds: 160),
+                    curve: Curves.easeOut,
+                    padding: const EdgeInsets.symmetric(vertical: 8),
+                    decoration: BoxDecoration(
+                      color: selected == mode
+                          ? AppColors.purple.withValues(alpha: 0.12)
+                          : Colors.transparent,
+                      borderRadius: BorderRadius.circular(9),
+                    ),
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(
+                          mode.icon,
+                          size: 18,
+                          color: selected == mode
+                              ? AppColors.purple
+                              : AppColors.muted,
+                        ),
+                        const SizedBox(height: 2),
+                        Text(
+                          mode.label,
+                          style: TextStyle(
+                            fontSize: 10.5,
+                            fontWeight: FontWeight.w800,
+                            color: selected == mode
+                                ? AppColors.navy
+                                : AppColors.muted,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
           ],
         ),
       ),

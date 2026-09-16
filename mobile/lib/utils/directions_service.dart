@@ -5,6 +5,54 @@ import '../api/api_client.dart';
 
 enum RouteTrafficLevel { light, moderate, heavy, unknown }
 
+enum TravelMode {
+  drive,
+  walk,
+  bicycle,
+  transit,
+}
+
+extension TravelModeX on TravelMode {
+  String get apiValue {
+    switch (this) {
+      case TravelMode.drive:
+        return 'drive';
+      case TravelMode.walk:
+        return 'walk';
+      case TravelMode.bicycle:
+        return 'bicycle';
+      case TravelMode.transit:
+        return 'transit';
+    }
+  }
+
+  String get label {
+    switch (this) {
+      case TravelMode.drive:
+        return 'Drive';
+      case TravelMode.walk:
+        return 'Walk';
+      case TravelMode.bicycle:
+        return 'Bike';
+      case TravelMode.transit:
+        return 'Transit';
+    }
+  }
+
+  IconData get icon {
+    switch (this) {
+      case TravelMode.drive:
+        return Icons.directions_car_filled_rounded;
+      case TravelMode.walk:
+        return Icons.directions_walk_rounded;
+      case TravelMode.bicycle:
+        return Icons.directions_bike_rounded;
+      case TravelMode.transit:
+        return Icons.directions_bus_filled_rounded;
+    }
+  }
+}
+
 class DirectionsRoute {
   const DirectionsRoute({
     required this.points,
@@ -14,6 +62,7 @@ class DirectionsRoute {
     this.trafficLevel = RouteTrafficLevel.unknown,
     this.hasTraffic = false,
     this.source = '',
+    this.travelMode = TravelMode.drive,
   });
 
   final List<LatLng> points;
@@ -23,6 +72,7 @@ class DirectionsRoute {
   final RouteTrafficLevel trafficLevel;
   final bool hasTraffic;
   final String source;
+  final TravelMode travelMode;
 
   String get etaLabel {
     final traffic = durationInTrafficText.trim();
@@ -131,13 +181,14 @@ RouteTrafficLevel _parseTrafficLevel(String raw) {
   }
 }
 
-/// Fetches driving routes through the PrintStack API.
+/// Fetches routes through the PrintStack API for the selected travel mode.
 class DirectionsService {
   DirectionsService._();
 
   static Future<DirectionsRoute?> fetchRoute({
     required LatLng origin,
     required LatLng destination,
+    TravelMode mode = TravelMode.drive,
   }) async {
     try {
       final route = await ApiClient.instance.fetchRoute(
@@ -145,6 +196,7 @@ class DirectionsService {
         fromLng: origin.longitude,
         toLat: destination.latitude,
         toLng: destination.longitude,
+        mode: mode.apiValue,
       );
 
       final points = route.points
@@ -153,7 +205,11 @@ class DirectionsService {
           .toList();
 
       if (points.length < 2) {
-        return DirectionsRoute(points: [origin, destination], source: 'fallback');
+        return DirectionsRoute(
+          points: [origin, destination],
+          source: 'fallback',
+          travelMode: mode,
+        );
       }
 
       return DirectionsRoute(
@@ -164,10 +220,15 @@ class DirectionsService {
         trafficLevel: _parseTrafficLevel(route.trafficLevel),
         hasTraffic: route.hasTraffic,
         source: route.source,
+        travelMode: mode,
       );
     } catch (error) {
       debugPrint('Directions via API failed: $error');
-      return DirectionsRoute(points: [origin, destination], source: 'fallback');
+      return DirectionsRoute(
+        points: [origin, destination],
+        source: 'fallback',
+        travelMode: mode,
+      );
     }
   }
 }

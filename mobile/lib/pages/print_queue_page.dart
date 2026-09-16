@@ -1,6 +1,9 @@
 import 'dart:io';
+import 'dart:math' as math;
+import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
+import 'package:pdfrx/pdfrx.dart';
 
 import '../api/api_client.dart';
 import '../components/buttons/gradient_button.dart';
@@ -372,14 +375,9 @@ class _QueueDocCard extends StatelessWidget {
             Row(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Container(
-                  width: 44,
-                  height: 44,
-                  decoration: BoxDecoration(
-                    color: AppColors.mist,
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                  child: const Icon(Icons.picture_as_pdf, color: AppColors.purple),
+                _PdfDocThumb(
+                  path: doc.path,
+                  greyscale: doc.forceBlackAndWhite,
                 ),
                 const SizedBox(width: 12),
                 Expanded(
@@ -443,6 +441,147 @@ class _QueueDocCard extends StatelessWidget {
           ],
         ),
       ),
+    );
+  }
+}
+
+class _PdfDocThumb extends StatefulWidget {
+  const _PdfDocThumb({
+    required this.path,
+    this.greyscale = false,
+  });
+
+  final String path;
+  final bool greyscale;
+
+  @override
+  State<_PdfDocThumb> createState() => _PdfDocThumbState();
+}
+
+class _PdfDocThumbState extends State<_PdfDocThumb> {
+  static const _greyscaleFilter = ColorFilter.matrix(<double>[
+    0.2126, 0.7152, 0.0722, 0, 0,
+    0.2126, 0.7152, 0.0722, 0, 0,
+    0.2126, 0.7152, 0.0722, 0, 0,
+    0, 0, 0, 1, 0,
+  ]);
+
+  ui.Image? _image;
+  bool _failed = false;
+  int _loadToken = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  @override
+  void didUpdateWidget(covariant _PdfDocThumb oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.path != widget.path) {
+      _load();
+    }
+  }
+
+  @override
+  void dispose() {
+    _image?.dispose();
+    super.dispose();
+  }
+
+  Future<void> _load() async {
+    final token = ++_loadToken;
+    _image?.dispose();
+    _image = null;
+    _failed = false;
+
+    try {
+      final doc = await PdfDocument.openFile(widget.path);
+      try {
+        if (doc.pages.isEmpty) {
+          throw StateError('empty pdf');
+        }
+        final page = await doc.pages.first.ensureLoaded();
+        final fullWidth = 140.0;
+        final fullHeight =
+            fullWidth * (page.height / math.max(page.width, 1));
+        final rendered = await page.render(
+          fullWidth: fullWidth,
+          fullHeight: fullHeight,
+        );
+        if (rendered == null) {
+          throw StateError('render failed');
+        }
+        try {
+          final image = await rendered.createImage(pixelSizeThreshold: 160);
+          if (!mounted || token != _loadToken) {
+            image.dispose();
+            return;
+          }
+          setState(() {
+            _image = image;
+            _failed = false;
+          });
+        } finally {
+          rendered.dispose();
+        }
+      } finally {
+        await doc.dispose();
+      }
+    } catch (_) {
+      if (!mounted || token != _loadToken) {
+        return;
+      }
+      setState(() {
+        _failed = true;
+        _image = null;
+      });
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final child = Container(
+      width: 48,
+      height: 60,
+      decoration: BoxDecoration(
+        color: AppColors.mist,
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(
+          color: AppColors.purple.withValues(alpha: 0.12),
+        ),
+      ),
+      clipBehavior: Clip.antiAlias,
+      child: _image != null
+          ? RawImage(
+              image: _image,
+              fit: BoxFit.cover,
+              width: 48,
+              height: 60,
+            )
+          : Center(
+              child: _failed
+                  ? const Icon(
+                      Icons.picture_as_pdf,
+                      size: 20,
+                      color: AppColors.purple,
+                    )
+                  : const SizedBox(
+                      width: 16,
+                      height: 16,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    ),
+            ),
+    );
+
+    if (!widget.greyscale || _image == null) {
+      return child;
+    }
+
+    return ColorFiltered(
+      colorFilter: _greyscaleFilter,
+      child: child,
     );
   }
 }

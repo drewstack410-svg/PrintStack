@@ -195,7 +195,83 @@ function parseDurationSeconds(value) {
   return match ? Number(match[1]) : 0
 }
 
-async function routeWithGoogleRoutesApi(fromLat, fromLng, toLat, toLng, apiKey) {
+function normalizeTravelMode(raw) {
+  const value = String(raw || 'drive').trim().toLowerCase()
+  if (['walk', 'walking', 'pedestrian'].includes(value)) {
+    return 'walk'
+  }
+  if (['bike', 'bicycle', 'bicycling', 'cycling'].includes(value)) {
+    return 'bicycle'
+  }
+  if (['transit', 'bus', 'train', 'public'].includes(value)) {
+    return 'transit'
+  }
+  if (['two_wheeler', 'motorcycle', 'motorbike'].includes(value)) {
+    return 'two_wheeler'
+  }
+  return 'drive'
+}
+
+function normalizeGoogleRoutesMode(raw) {
+  switch (normalizeTravelMode(raw)) {
+    case 'walk':
+      return 'WALK'
+    case 'bicycle':
+      return 'BICYCLE'
+    case 'transit':
+      return 'TRANSIT'
+    case 'two_wheeler':
+      return 'TWO_WHEELER'
+    default:
+      return 'DRIVE'
+  }
+}
+
+function normalizeGoogleDirectionsMode(raw) {
+  switch (normalizeTravelMode(raw)) {
+    case 'walk':
+      return 'walking'
+    case 'bicycle':
+      return 'bicycling'
+    case 'transit':
+      return 'transit'
+    default:
+      return 'driving'
+  }
+}
+
+function normalizeGeoapifyMode(raw) {
+  switch (normalizeTravelMode(raw)) {
+    case 'walk':
+      return 'walk'
+    case 'bicycle':
+      return 'bicycle'
+    case 'transit':
+      return 'transit'
+    default:
+      return 'drive'
+  }
+}
+
+async function routeWithGoogleRoutesApi(fromLat, fromLng, toLat, toLng, apiKey, travelMode = 'DRIVE') {
+  const mode = normalizeGoogleRoutesMode(travelMode)
+  const body = {
+    origin: {
+      location: { latLng: { latitude: fromLat, longitude: fromLng } },
+    },
+    destination: {
+      location: { latLng: { latitude: toLat, longitude: toLng } },
+    },
+    travelMode: mode,
+    polylineQuality: 'HIGH_QUALITY',
+    computeAlternativeRoutes: false,
+    languageCode: 'en-US',
+    units: 'METRIC',
+  }
+  if (mode === 'DRIVE' || mode === 'TWO_WHEELER') {
+    body.routingPreference = 'TRAFFIC_AWARE'
+  }
+
   const response = await fetch('https://routes.googleapis.com/directions/v2:computeRoutes', {
     method: 'POST',
     headers: {
@@ -209,20 +285,7 @@ async function routeWithGoogleRoutesApi(fromLat, fromLng, toLat, toLng, apiKey) 
         'routes.legs.polyline.encodedPolyline',
       ].join(','),
     },
-    body: JSON.stringify({
-      origin: {
-        location: { latLng: { latitude: fromLat, longitude: fromLng } },
-      },
-      destination: {
-        location: { latLng: { latitude: toLat, longitude: toLng } },
-      },
-      travelMode: 'DRIVE',
-      routingPreference: 'TRAFFIC_AWARE',
-      polylineQuality: 'HIGH_QUALITY',
-      computeAlternativeRoutes: false,
-      languageCode: 'en-US',
-      units: 'METRIC',
-    }),
+    body: JSON.stringify(body),
   })
 
   const payload = await response.json()
@@ -257,16 +320,18 @@ async function routeWithGoogleRoutesApi(fromLat, fromLng, toLat, toLng, apiKey) 
     durationText: formatDuration(staticSeconds),
     durationInTrafficText: formatDuration(trafficSeconds),
     trafficLevel: trafficLevelFromDurations(staticSeconds, trafficSeconds),
-    hasTraffic: Boolean(route.duration),
+    hasTraffic: Boolean(route.duration) && (mode === 'DRIVE' || mode === 'TWO_WHEELER'),
+    travelMode: mode,
     source: 'google_routes',
   }
 }
 
-async function routeWithGeoapify(fromLat, fromLng, toLat, toLng, apiKey) {
+async function routeWithGeoapify(fromLat, fromLng, toLat, toLng, apiKey, travelMode = 'drive') {
+  const mode = normalizeGeoapifyMode(travelMode)
   const params = new URLSearchParams({
     waypoints: `${fromLat},${fromLng}|${toLat},${toLng}`,
-    mode: 'drive',
-    traffic: 'approximated',
+    mode,
+    traffic: mode === 'drive' ? 'approximated' : 'free_flow',
     apiKey,
   })
   const response = await fetch(`https://api.geoapify.com/v1/routing?${params}`)
@@ -289,20 +354,24 @@ async function routeWithGeoapify(fromLat, fromLng, toLat, toLng, apiKey) {
     durationText: formatDuration(timeSeconds),
     durationInTrafficText: formatDuration(timeSeconds),
     trafficLevel: 'unknown',
-    hasTraffic: true,
+    hasTraffic: mode === 'drive',
+    travelMode: mode,
     source: 'geoapify',
   }
 }
 
-async function routeWithGoogleDirections(fromLat, fromLng, toLat, toLng, apiKey) {
+async function routeWithGoogleDirections(fromLat, fromLng, toLat, toLng, apiKey, travelMode = 'driving') {
+  const mode = normalizeGoogleDirectionsMode(travelMode)
   const params = new URLSearchParams({
     origin: `${fromLat},${fromLng}`,
     destination: `${toLat},${toLng}`,
-    mode: 'driving',
-    departure_time: 'now',
-    traffic_model: 'best_guess',
+    mode,
     key: apiKey,
   })
+  if (mode === 'driving') {
+    params.set('departure_time', 'now')
+    params.set('traffic_model', 'best_guess')
+  }
   const response = await fetch(
     `https://maps.googleapis.com/maps/api/directions/json?${params}`,
   )
@@ -344,6 +413,7 @@ async function routeWithGoogleDirections(fromLat, fromLng, toLat, toLng, apiKey)
       leg?.duration_in_traffic?.text || formatDuration(trafficSeconds),
     trafficLevel: trafficLevelFromDurations(baseSeconds, trafficSeconds),
     hasTraffic: Boolean(leg?.duration_in_traffic),
+    travelMode: mode,
     source: 'google_directions',
   }
 }
@@ -759,6 +829,9 @@ async function route(req, res) {
     const fromLng = requireNumber(req.query.fromLng ?? req.body?.fromLng, 'fromLng')
     const toLat = requireNumber(req.query.toLat ?? req.body?.toLat, 'toLat')
     const toLng = requireNumber(req.query.toLng ?? req.body?.toLng, 'toLng')
+    const travelMode = normalizeTravelMode(
+      req.query.mode ?? req.query.travelMode ?? req.body?.mode ?? req.body?.travelMode,
+    )
 
     const geoapifyKey = geoapifyApiKey()
     const googleKey = googleMapsApiKey()
@@ -769,7 +842,14 @@ async function route(req, res) {
     // Prefer Google Routes API (new) — works with modern key restrictions + traffic.
     if (googleKey) {
       try {
-        result = await routeWithGoogleRoutesApi(fromLat, fromLng, toLat, toLng, googleKey)
+        result = await routeWithGoogleRoutesApi(
+          fromLat,
+          fromLng,
+          toLat,
+          toLng,
+          googleKey,
+          travelMode,
+        )
       } catch (error) {
         errors.push(`routes: ${error.message}`)
         console.warn('[geo/route] Google Routes API failed:', error.message)
@@ -778,7 +858,14 @@ async function route(req, res) {
 
     if (!result && googleKey) {
       try {
-        result = await routeWithGoogleDirections(fromLat, fromLng, toLat, toLng, googleKey)
+        result = await routeWithGoogleDirections(
+          fromLat,
+          fromLng,
+          toLat,
+          toLng,
+          googleKey,
+          travelMode,
+        )
       } catch (error) {
         errors.push(`directions: ${error.message}`)
         console.warn('[geo/route] Google Directions failed:', error.message)
@@ -787,7 +874,14 @@ async function route(req, res) {
 
     if (!result && geoapifyKey) {
       try {
-        result = await routeWithGeoapify(fromLat, fromLng, toLat, toLng, geoapifyKey)
+        result = await routeWithGeoapify(
+          fromLat,
+          fromLng,
+          toLat,
+          toLng,
+          geoapifyKey,
+          travelMode,
+        )
       } catch (error) {
         errors.push(`geoapify: ${error.message}`)
         console.warn('[geo/route] Geoapify failed:', error.message)
