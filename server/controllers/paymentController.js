@@ -13,6 +13,12 @@ const {
 } = require('../utils/paymongoWebhook')
 const { buildPaymentReturnUrl } = require('../utils/clientReturnUrl')
 const { fulfillPrintOrderFromPaymentIntent } = require('../services/printPaymentFulfillment')
+const {
+  jobReferenceFields,
+  mapPayment,
+  paymentRef,
+  writeStatusEvent,
+} = require('../services/printJobCrossReferences')
 
 function jobsRef(partnerId) {
   return db.collection('partners').doc(partnerId).collection('printJobs')
@@ -21,6 +27,44 @@ function jobsRef(partnerId) {
 function formatPesoFromCentavos(centavos) {
   if (centavos == null || !Number.isFinite(Number(centavos))) return null
   return (Number(centavos) / 100).toFixed(2)
+}
+
+async function recordFailedPayment(paymentIntentId) {
+  if (!paymentIntentId) return
+
+  const recordRef = paymentRef(paymentIntentId)
+  const paymentSnap = await recordRef.get()
+  const payment = paymentSnap.data() || {}
+  const partnerId = String(payment.partnerId || '')
+  const printJobId = String(payment.printJobId || '')
+  const batch = db.batch()
+
+  batch.set(recordRef, {
+    paymentStatus: 'failed',
+    providerStatus: 'failed',
+    updatedAt: FieldValue.serverTimestamp(),
+  }, { merge: true })
+
+  if (partnerId && printJobId) {
+    const ref = jobsRef(partnerId).doc(printJobId)
+    batch.update(ref, {
+      paymentStatus: 'failed',
+      rawStatus: 'Online payment failed — payment can be retried',
+      updatedAt: FieldValue.serverTimestamp(),
+    })
+    writeStatusEvent(batch, {
+      jobRef: ref,
+      partnerId,
+      printJobId,
+      customerUid: String(payment.customerUid || ''),
+      paymentIntentId,
+      status: 'awaiting_payment',
+      rawStatus: 'Online payment failed — payment can be retried',
+      source: 'payment',
+    })
+  }
+
+  await batch.commit()
 }
 
 async function verifyPaymentIntentForUser(paymentIntentId, userId) {
@@ -84,6 +128,40 @@ exports.getPaymongoConfig = (_req, res) => {
   })
 }
 
+exports.listMyPrintOrderPayments = async (req, res) => {
+  const userId = req.user?.uid
+  if (!userId) {
+    return res.status(401).json({ error: 'Authentication required' })
+  }
+
+  try {
+    let snap
+    try {
+      snap = await db
+        .collection('payments')
+        .where('customerUid', '==', userId)
+        .orderBy('createdAt', 'desc')
+        .limit(50)
+        .get()
+    } catch (error) {
+      console.warn('[payments] list fallback', error.message)
+      snap = await db
+        .collection('payments')
+        .where('customerUid', '==', userId)
+        .limit(50)
+        .get()
+    }
+
+    const payments = snap.docs
+      .map(mapPayment)
+      .sort((a, b) => String(b.createdAt || '').localeCompare(String(a.createdAt || '')))
+    return res.json({ payments })
+  } catch (err) {
+    console.error('Failed to list print order payments', err)
+    return res.status(500).json({ error: 'Failed to load payments' })
+  }
+}
+
 /** Create a PayMongo PaymentIntent for an awaiting_payment print job. */
 exports.createPrintOrderIntent = async (req, res) => {
   try {
@@ -124,13 +202,42 @@ exports.createPrintOrderIntent = async (req, res) => {
     })
 
     const intent = intentRes.data
+    const references = jobReferenceFields({
+      partnerId,
+      printJobId,
+      customerUid: userId,
+    })
+    const partnerSnap = await references.partnerRef.get()
+    const partnerName = String(partnerSnap.data()?.companyName || '')
+    const recordRef = paymentRef(intent.id)
 
-    await ref.update({
+    const batch = db.batch()
+    batch.update(ref, {
       paymentIntentId: intent.id,
+      paymentPath: recordRef.path,
+      paymentRef: recordRef,
       paymentStatus: 'pending',
       rawStatus: 'Awaiting online payment',
       updatedAt: FieldValue.serverTimestamp(),
     })
+    batch.set(recordRef, {
+      ...references,
+      paymentIntentId: intent.id,
+      paymentPath: recordRef.path,
+      paymentRef: recordRef,
+      checkoutType: 'print_order',
+      orderNumber: String(data.orderNumber || ''),
+      partnerName,
+      amount: totalPrice,
+      amountCentavos,
+      currency: 'PHP',
+      paymentStatus: 'pending',
+      providerStatus: intent.attributes?.status || 'awaiting_payment_method',
+      paymentMethodType: '',
+      createdAt: FieldValue.serverTimestamp(),
+      updatedAt: FieldValue.serverTimestamp(),
+    })
+    await batch.commit()
 
     return res.json({
       paymentIntentId: intent.id,
@@ -217,6 +324,12 @@ exports.payPrintOrder = async (req, res) => {
     const attached = attachRes?.data
     const status = attached?.attributes?.status
     const nextAction = attached?.attributes?.next_action
+    await paymentRef(paymentIntentId).set({
+      paymentMethodType: type,
+      providerStatus: status || '',
+      paymentStatus: status === 'succeeded' ? 'paid' : 'pending',
+      updatedAt: FieldValue.serverTimestamp(),
+    }, { merge: true })
 
     if (status === 'awaiting_next_action' && nextAction?.redirect?.url) {
       return res.json({
@@ -227,6 +340,7 @@ exports.payPrintOrder = async (req, res) => {
     }
 
     if (status !== 'succeeded') {
+      await recordFailedPayment(paymentIntentId)
       const errMsg =
         attached?.attributes?.last_payment_error?.message ||
         attached?.attributes?.last_payment_error?.detail ||
@@ -319,6 +433,7 @@ exports.handlePaymongoWebhook = async (req, res) => {
     try {
       if (eventType === 'payment.failed') {
         const paymentIntentId = extractPaymentIntentIdFromEvent(payload)
+        await recordFailedPayment(paymentIntentId)
         console.warn('PayMongo payment.failed', { eventId, paymentIntentId })
         return
       }

@@ -6,6 +6,7 @@ import '../location/location_page.dart';
 import '../pages/account_page.dart';
 import '../pages/history_page.dart';
 import '../pages/home_page.dart';
+import '../pages/payments_page.dart';
 import '../pages/print_page.dart';
 
 /// Top-level authenticated navigation host (bottom nav + sidebar).
@@ -21,12 +22,13 @@ class _MainShellState extends State<MainShell> {
   bool _hideChromeForSearch = false;
 
   String get _title => switch (_selected) {
-        AppNavId.home => 'Home',
-        AppNavId.print => 'Find shops',
-        AppNavId.history => 'History',
-        AppNavId.location => 'Location',
-        AppNavId.account => 'Account',
-      };
+    AppNavId.home => 'Home',
+    AppNavId.print => 'Find shops',
+    AppNavId.history => 'History',
+    AppNavId.payments => 'Payments',
+    AppNavId.location => 'Location',
+    AppNavId.account => 'Settings',
+  };
 
   @override
   Widget build(BuildContext context) {
@@ -42,18 +44,19 @@ class _MainShellState extends State<MainShell> {
       hideCenterFab: _hideChromeForSearch,
       body: switch (_selected) {
         AppNavId.home => HomePage(
-            onOpenPrint: () => setState(() => _selected = AppNavId.print),
-            onOpenHistory: () => setState(() => _selected = AppNavId.history),
-          ),
+          onOpenPrint: () => setState(() => _selected = AppNavId.print),
+          onOpenHistory: () => setState(() => _selected = AppNavId.history),
+        ),
         AppNavId.print => PrintPage(
-            onSearchFocusChanged: (focused) {
-              if (_hideChromeForSearch == focused) {
-                return;
-              }
-              setState(() => _hideChromeForSearch = focused);
-            },
-          ),
+          onSearchFocusChanged: (focused) {
+            if (_hideChromeForSearch == focused) {
+              return;
+            }
+            setState(() => _hideChromeForSearch = focused);
+          },
+        ),
         AppNavId.history => const HistoryPage(),
+        AppNavId.payments => const PaymentsPage(),
         AppNavId.location => const LocationPage(),
         AppNavId.account => const AccountPage(),
       },

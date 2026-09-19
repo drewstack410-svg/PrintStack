@@ -6,11 +6,7 @@ import '../theme.dart';
 import 'nav_destinations.dart';
 
 class AppSidebar extends StatelessWidget {
-  const AppSidebar({
-    super.key,
-    required this.selected,
-    required this.onSelect,
-  });
+  const AppSidebar({super.key, required this.selected, required this.onSelect});
 
   final AppNavId selected;
   final ValueChanged<AppNavId> onSelect;
@@ -20,21 +16,24 @@ class AppSidebar extends StatelessWidget {
     final user = FirebaseAuth.instance.currentUser;
     final name = (user?.displayName ?? '').trim();
     final email = (user?.email ?? '').trim();
-    final label = name.isNotEmpty ? name : (email.isNotEmpty ? email : 'Customer');
+    final label = name.isNotEmpty
+        ? name
+        : (email.isNotEmpty ? email : 'Customer');
     final initial = label.isNotEmpty ? label[0].toUpperCase() : 'P';
 
     return Drawer(
+      width: 240,
       backgroundColor: Colors.white,
       child: SafeArea(
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
             Padding(
-              padding: const EdgeInsets.fromLTRB(20, 20, 20, 16),
+              padding: const EdgeInsets.fromLTRB(16, 16, 16, 12),
               child: Row(
                 children: [
                   CircleAvatar(
-                    radius: 22,
+                    radius: 19,
                     backgroundColor: AppColors.purple.withValues(alpha: 0.12),
                     backgroundImage: (user?.photoURL ?? '').trim().isNotEmpty
                         ? NetworkImage(user!.photoURL!)
@@ -83,7 +82,7 @@ class AppSidebar extends StatelessWidget {
             ),
             const Divider(height: 1),
             const SizedBox(height: 8),
-            ...[...bottomNavDestinations, ...drawerNavDestinations].map((item) {
+            ...sidebarNavDestinations.map((item) {
               final isSelected = item.id == selected;
               return ListTile(
                 selected: isSelected,

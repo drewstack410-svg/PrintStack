@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 
-enum AppNavId { home, print, history, location, account }
+enum AppNavId { home, print, history, payments, location, account }
 
 class AppNavDestination {
   const AppNavDestination({
@@ -39,17 +39,17 @@ const bottomNavDestinations = [
 ];
 
 /// Drawer-only destinations.
-const drawerNavDestinations = [
+const sidebarNavDestinations = [
   AppNavDestination(
-    id: AppNavId.location,
-    label: 'Location',
-    icon: Icons.location_on_outlined,
-    selectedIcon: Icons.location_on,
+    id: AppNavId.payments,
+    label: 'Payments',
+    icon: Icons.payments_outlined,
+    selectedIcon: Icons.payments,
   ),
   AppNavDestination(
     id: AppNavId.account,
-    label: 'Account',
-    icon: Icons.person_outline,
-    selectedIcon: Icons.person,
+    label: 'Settings',
+    icon: Icons.settings_outlined,
+    selectedIcon: Icons.settings,
   ),
 ];

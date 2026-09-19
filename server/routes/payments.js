@@ -2,6 +2,7 @@ const { Router } = require('express')
 const { requireAuth } = require('../middleware/auth')
 const {
   getPaymongoConfig,
+  listMyPrintOrderPayments,
   createPrintOrderIntent,
   payPrintOrder,
   finalizePrintOrderPayment,
@@ -10,6 +11,7 @@ const {
 const router = Router()
 
 router.get('/config', getPaymongoConfig)
+router.get('/print-order', requireAuth, listMyPrintOrderPayments)
 router.post('/print-order/intent', requireAuth, createPrintOrderIntent)
 router.post('/print-order/pay', requireAuth, payPrintOrder)
 router.post('/print-order/finalize', requireAuth, finalizePrintOrderPayment)

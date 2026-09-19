@@ -27,8 +27,6 @@ const _uploadableExtensions = <String>[
   'jpeg',
   'doc',
   'docx',
-  'xls',
-  'xlsx',
 ];
 
 bool _isImagePath(String path) {
@@ -60,8 +58,18 @@ Future<String?> showDocumentSourceDialog(BuildContext context) {
               _DocumentSourceOptionCard(
                 icon: Icons.upload_file_rounded,
                 title: 'Upload file',
-                subtitle: 'PDF, Word, Excel, or image',
+                subtitle: 'PDF, Word, or image',
                 onTap: () => Navigator.pop(context, 'upload'),
+              ),
+              const SizedBox(height: 8),
+              Text(
+                'For better accuracy, upload a PDF version of your document.',
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  fontSize: 12,
+                  color: AppColors.muted,
+                  fontWeight: FontWeight.w600,
+                ),
               ),
               const SizedBox(height: 12),
               _DocumentSourceOptionCard(
@@ -303,7 +311,8 @@ Future<PickedPrintDocument?> intakePrintDocument(
         final converted = await convertOfficeFileToPdf(
           path: picked.path,
           fileName: picked.name,
-          paperSize: initialLayout ??
+          paperSize:
+              initialLayout ??
               (layouts.isNotEmpty ? layouts.first : PaperSize.defaults.first),
         );
         if (context.mounted) {

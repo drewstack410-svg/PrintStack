@@ -83,7 +83,8 @@ class _HistoryTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final active = job.status == 'printing' ||
+    final active =
+        job.status == 'printing' ||
         job.status == 'queued' ||
         job.status == 'sending';
     final statusLabel = switch (job.status) {
@@ -112,7 +113,10 @@ class _HistoryTile extends StatelessWidget {
               color: AppColors.purple.withValues(alpha: 0.1),
               borderRadius: BorderRadius.circular(12),
             ),
-            child: const Icon(Icons.picture_as_pdf_outlined, color: AppColors.purple),
+            child: const Icon(
+              Icons.picture_as_pdf_outlined,
+              color: AppColors.purple,
+            ),
           ),
           const SizedBox(width: 12),
           Expanded(
@@ -139,11 +143,41 @@ class _HistoryTile extends StatelessWidget {
                   ].join(' · '),
                   style: const TextStyle(color: AppColors.muted, fontSize: 13),
                 ),
+                if (job.rawStatus.isNotEmpty) ...[
+                  const SizedBox(height: 4),
+                  Text(
+                    job.rawStatus,
+                    style: const TextStyle(
+                      color: AppColors.muted,
+                      fontSize: 12,
+                    ),
+                  ),
+                ],
+                if (job.paymentStatus.isNotEmpty) ...[
+                  const SizedBox(height: 4),
+                  Text(
+                    job.paymentStatus == 'paid'
+                        ? 'Payment confirmed'
+                        : job.paymentStatus == 'failed'
+                        ? 'Payment failed'
+                        : 'Payment ${job.paymentStatus}',
+                    style: TextStyle(
+                      color: job.paymentStatus == 'paid'
+                          ? Colors.green.shade700
+                          : AppColors.muted,
+                      fontSize: 12,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ],
                 if (_when.isNotEmpty) ...[
                   const SizedBox(height: 4),
                   Text(
                     _when,
-                    style: const TextStyle(color: AppColors.muted, fontSize: 12),
+                    style: const TextStyle(
+                      color: AppColors.muted,
+                      fontSize: 12,
+                    ),
                   ),
                 ],
               ],

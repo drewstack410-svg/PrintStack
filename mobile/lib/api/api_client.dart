@@ -185,6 +185,18 @@ class ApiClient {
     );
   }
 
+  Future<List<Map<String, dynamic>>> listMyPrintOrderPayments() async {
+    final payload = await _request('GET', '/api/payments/print-order');
+    final raw = payload['payments'];
+    if (raw is! List) {
+      return const [];
+    }
+    return raw
+        .whereType<Map>()
+        .map((item) => Map<String, dynamic>.from(item))
+        .toList(growable: false);
+  }
+
   @Deprecated('Use createCustomerPrintOrder with documents list')
   Future<Map<String, dynamic>> createCustomerPrintJob({
     required String partnerId,
@@ -249,9 +261,7 @@ class ApiClient {
     return (payload['label'] ?? '').toString();
   }
 
-  Future<
-    List<({String id, String label, double lat, double lng})>
-  >
+  Future<List<({String id, String label, double lat, double lng})>>
   autocompletePlaces(String query) async {
     final text = query.trim();
     if (text.length < 2) {

@@ -26,7 +26,9 @@ class AppShell extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final bottomId = switch (selected) {
-      AppNavId.account || AppNavId.location => AppNavId.home,
+      AppNavId.account ||
+      AppNavId.location ||
+      AppNavId.payments => AppNavId.home,
       _ => selected,
     };
     final printSelected = bottomId == AppNavId.print;
@@ -40,16 +42,11 @@ class AppShell extends StatelessWidget {
           ...?actions,
           Padding(
             padding: const EdgeInsets.only(right: 12),
-            child: _AppBarAvatar(
-              onTap: () => onSelect(AppNavId.account),
-            ),
+            child: _AppBarAvatar(onTap: () => onSelect(AppNavId.account)),
           ),
         ],
       ),
-      drawer: AppSidebar(
-        selected: selected,
-        onSelect: onSelect,
-      ),
+      drawer: AppSidebar(selected: selected, onSelect: onSelect),
       body: body,
       floatingActionButtonLocation: FloatingActionButtonLocation.centerDocked,
       floatingActionButton: hideCenterFab
@@ -168,10 +165,7 @@ class _NavItem extends StatelessWidget {
 }
 
 class _PrintFab extends StatelessWidget {
-  const _PrintFab({
-    required this.selected,
-    required this.onTap,
-  });
+  const _PrintFab({required this.selected, required this.onTap});
 
   final bool selected;
   final VoidCallback onTap;

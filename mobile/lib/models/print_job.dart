@@ -27,7 +27,10 @@ class PrintOrderDocument {
   final String fileUrl;
   final String status;
 
-  factory PrintOrderDocument.fromMap(Map<String, dynamic> data, [int index = 0]) {
+  factory PrintOrderDocument.fromMap(
+    Map<String, dynamic> data, [
+    int index = 0,
+  ]) {
     return PrintOrderDocument(
       id: (data['id'] ?? 'doc-${index + 1}').toString(),
       documentName: (data['documentName'] ?? 'Document').toString(),
@@ -53,6 +56,9 @@ class PrintJob {
     required this.documentCount,
     required this.documents,
     required this.status,
+    required this.rawStatus,
+    required this.paymentStatus,
+    required this.paymentIntentId,
     required this.paperSizeName,
     required this.copies,
     required this.pages,
@@ -62,6 +68,10 @@ class PrintJob {
     required this.totalPrice,
     required this.partnerName,
     this.createdAt,
+    this.updatedAt,
+    this.paidAt,
+    this.printingStartedAt,
+    this.completedAt,
   });
 
   final String id;
@@ -71,6 +81,9 @@ class PrintJob {
   final int documentCount;
   final List<PrintOrderDocument> documents;
   final String status;
+  final String rawStatus;
+  final String paymentStatus;
+  final String paymentIntentId;
   final String paperSizeName;
   final int copies;
   final int pages;
@@ -80,6 +93,10 @@ class PrintJob {
   final double totalPrice;
   final String partnerName;
   final DateTime? createdAt;
+  final DateTime? updatedAt;
+  final DateTime? paidAt;
+  final DateTime? printingStartedAt;
+  final DateTime? completedAt;
 
   factory PrintJob.fromDoc(
     QueryDocumentSnapshot<Map<String, dynamic>> doc, {
@@ -89,10 +106,9 @@ class PrintJob {
     final pathParts = doc.reference.path.split('/');
     final partnerId = pathParts.length >= 2 ? pathParts[1] : '';
 
-    DateTime? createdAt;
-    final rawCreated = data['createdAt'];
-    if (rawCreated is Timestamp) {
-      createdAt = rawCreated.toDate();
+    DateTime? readDate(String field) {
+      final value = data[field];
+      return value is Timestamp ? value.toDate() : null;
     }
 
     final rawDocs = data['documents'];
@@ -108,7 +124,8 @@ class PrintJob {
       }
     }
 
-    if (documents.isEmpty && (data['documentName'] != null || data['fileUrl'] != null)) {
+    if (documents.isEmpty &&
+        (data['documentName'] != null || data['fileUrl'] != null)) {
       documents.add(
         PrintOrderDocument.fromMap({
           'id': 'doc-1',
@@ -130,33 +147,52 @@ class PrintJob {
     final bwPages = documents.fold<int>(0, (sum, d) => sum + d.bwPages);
     final colorPages = documents.fold<int>(0, (sum, d) => sum + d.colorPages);
     final copies = documents.fold<int>(0, (sum, d) => sum + d.copies);
-    final totalPrice = documents.fold<double>(0, (sum, d) => sum + d.totalPrice);
+    final totalPrice = documents.fold<double>(
+      0,
+      (sum, d) => sum + d.totalPrice,
+    );
     final first = documents.isEmpty ? null : documents.first;
-    final orderNumber = (data['orderNumber'] ?? doc.id).toString().padLeft(8, '0');
+    final orderNumber = (data['orderNumber'] ?? doc.id).toString().padLeft(
+      8,
+      '0',
+    );
 
     return PrintJob(
       id: doc.id,
       partnerId: partnerId,
-      orderNumber: orderNumber.length > 8 ? orderNumber.substring(orderNumber.length - 8) : orderNumber,
+      orderNumber: orderNumber.length > 8
+          ? orderNumber.substring(orderNumber.length - 8)
+          : orderNumber,
       documentName: documents.length <= 1
-          ? (first?.documentName ?? (data['documentName'] ?? 'Print order').toString())
+          ? (first?.documentName ??
+                (data['documentName'] ?? 'Print order').toString())
           : '${first?.documentName ?? 'Document'} +${documents.length - 1} more',
       documentCount: documents.isEmpty ? 1 : documents.length,
       documents: documents,
       status: (data['status'] ?? 'queued').toString(),
-      paperSizeName: first?.paperSizeName ?? (data['paperSizeName'] ?? '').toString(),
+      rawStatus: (data['rawStatus'] ?? '').toString(),
+      paymentStatus: (data['paymentStatus'] ?? '').toString(),
+      paymentIntentId: (data['paymentIntentId'] ?? '').toString(),
+      paperSizeName:
+          first?.paperSizeName ?? (data['paperSizeName'] ?? '').toString(),
       copies: copies > 0 ? copies : ((data['copies'] as num?)?.toInt() ?? 1),
       pages: pages > 0 ? pages : ((data['pages'] as num?)?.toInt() ?? 1),
-      bwPages: bwPages > 0 ? bwPages : ((data['bwPages'] as num?)?.toInt() ?? 0),
+      bwPages: bwPages > 0
+          ? bwPages
+          : ((data['bwPages'] as num?)?.toInt() ?? 0),
       colorPages: colorPages > 0
           ? colorPages
           : ((data['colorPages'] as num?)?.toInt() ?? 0),
       colorMode: (data['colorMode'] ?? first?.colorMode ?? 'bw').toString(),
-      totalPrice: totalPrice > 0
-          ? totalPrice
-          : ((data['totalPrice'] as num?)?.toDouble() ?? 0),
+      totalPrice:
+          (data['totalPrice'] as num?)?.toDouble() ??
+          (totalPrice > 0 ? totalPrice : 0),
       partnerName: partnerName,
-      createdAt: createdAt,
+      createdAt: readDate('createdAt'),
+      updatedAt: readDate('updatedAt'),
+      paidAt: readDate('paidAt'),
+      printingStartedAt: readDate('printingStartedAt'),
+      completedAt: readDate('completedAt'),
     );
   }
 }

@@ -2,6 +2,10 @@ const { FieldValue } = require('firebase-admin/firestore')
 const { db } = require('../firestore')
 const { isLocationOnline } = require('../lib/location')
 const { normalizePaperSizes } = require('../lib/paperSizes')
+const {
+  jobReferenceFields,
+  writeStatusEvent,
+} = require('../services/printJobCrossReferences')
 
 const STATUSES = new Set([
   'awaiting_payment',
@@ -174,6 +178,11 @@ function mapJob(doc) {
 
   return {
     id: doc.id,
+    partnerId: data.partnerId || doc.ref.parent.parent?.id || '',
+    printJobId: data.printJobId || doc.id,
+    printJobPath: data.printJobPath || doc.ref.path,
+    customerPath: data.customerPath || '',
+    paymentPath: data.paymentPath || '',
     orderNumber: String(data.orderNumber || doc.id).padStart(8, '0').slice(-8),
     documentName: aggregates.documentName,
     documentCount: aggregates.documentCount,
@@ -204,6 +213,8 @@ function mapJob(doc) {
     paymentStatus: data.paymentStatus || '',
     paymentIntentId: data.paymentIntentId || '',
     paidAt: data.paidAt?.toDate?.()?.toISOString?.() || null,
+    printingStartedAt: data.printingStartedAt?.toDate?.()?.toISOString?.() || null,
+    completedAt: data.completedAt?.toDate?.()?.toISOString?.() || null,
     createdAt: data.createdAt?.toDate?.()?.toISOString?.() || null,
     updatedAt: data.updatedAt?.toDate?.()?.toISOString?.() || null,
   }
@@ -352,7 +363,12 @@ async function createPrintJob(req, res) {
   const aggregates = aggregateFromDocuments(documents)
 
   const ref = jobsRef(partnerId).doc()
+  const references = jobReferenceFields({
+    partnerId,
+    printJobId: ref.id,
+  })
   const job = {
+    ...references,
     orderNumber,
     ...aggregates,
     documents,
@@ -364,7 +380,16 @@ async function createPrintJob(req, res) {
     createdAt: FieldValue.serverTimestamp(),
     updatedAt: FieldValue.serverTimestamp(),
   }
-  await ref.set(job)
+  const batch = db.batch()
+  batch.set(ref, job)
+  writeStatusEvent(batch, {
+    jobRef: ref,
+    partnerId,
+    printJobId: ref.id,
+    status: 'sending',
+    source: 'desktop',
+  })
+  await batch.commit()
   const snap = await ref.get()
   res.status(201).json({ printJob: mapJob(snap) })
 }
@@ -439,7 +464,13 @@ async function createCustomerPrintJob(req, res) {
   const needsPayment = totalPrice >= 1
 
   const ref = jobsRef(partnerId).doc()
+  const references = jobReferenceFields({
+    partnerId,
+    printJobId: ref.id,
+    customerUid: req.user.uid,
+  })
   const job = {
+    ...references,
     orderNumber,
     ...aggregates,
     totalPrice,
@@ -461,7 +492,18 @@ async function createCustomerPrintJob(req, res) {
     updatedAt: FieldValue.serverTimestamp(),
   }
 
-  await ref.set(job)
+  const batch = db.batch()
+  batch.set(ref, job)
+  writeStatusEvent(batch, {
+    jobRef: ref,
+    partnerId,
+    printJobId: ref.id,
+    customerUid: req.user.uid,
+    status: job.status,
+    rawStatus: job.rawStatus,
+    source: 'mobile',
+  })
+  await batch.commit()
   const snap = await ref.get()
   res.status(201).json({
     printJob: mapJob(snap),
@@ -496,6 +538,12 @@ async function updatePrintJob(req, res) {
     status,
     rawStatus: String(req.body.rawStatus || ''),
     updatedAt: FieldValue.serverTimestamp(),
+  }
+  if (status === 'printing' && existing.status !== 'printing') {
+    updates.printingStartedAt = FieldValue.serverTimestamp()
+  }
+  if (status === 'printed' && existing.status !== 'printed') {
+    updates.completedAt = FieldValue.serverTimestamp()
   }
 
   if (req.body.printerName) {
@@ -544,7 +592,19 @@ async function updatePrintJob(req, res) {
     }
   }
 
-  await ref.update(updates)
+  const batch = db.batch()
+  batch.update(ref, updates)
+  writeStatusEvent(batch, {
+    jobRef: ref,
+    partnerId,
+    printJobId: ref.id,
+    customerUid: existing.customerUid || '',
+    paymentIntentId: existing.paymentIntentId || '',
+    status,
+    rawStatus: updates.rawStatus,
+    source: 'partner',
+  })
+  await batch.commit()
 
   const updated = await ref.get()
   res.json({ printJob: mapJob(updated) })

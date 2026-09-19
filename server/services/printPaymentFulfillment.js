@@ -1,6 +1,11 @@
 const { FieldValue } = require('firebase-admin/firestore')
 const { db } = require('../firestore')
 const { getPaymentIntent } = require('../utils/paymongo')
+const {
+  jobReferenceFields,
+  paymentRef,
+  writeStatusEvent,
+} = require('./printJobCrossReferences')
 
 function jobsRef(partnerId) {
   return db.collection('partners').doc(partnerId).collection('printJobs')
@@ -38,50 +43,81 @@ async function fulfillPrintOrderFromPaymentIntent(paymentIntentId) {
   }
 
   const ref = jobsRef(partnerId).doc(printJobId)
-  const snap = await ref.get()
-  if (!snap.exists) {
-    throw Object.assign(new Error('Print job not found'), { status: 404 })
-  }
+  const recordRef = paymentRef(paymentIntentId)
 
-  const data = snap.data() || {}
-  const alreadyPaid =
-    data.paymentStatus === 'paid' ||
-    (data.paymentIntentId && data.paymentIntentId === paymentIntentId && data.status === 'queued')
-
-  if (alreadyPaid) {
-    return {
-      created: false,
-      record: {
-        partnerId,
-        printJobId,
-        orderNumber: data.orderNumber || null,
-        paymentIntentId,
-        paymentStatus: 'paid',
-        status: data.status || 'queued',
-      },
+  return db.runTransaction(async (transaction) => {
+    const snap = await transaction.get(ref)
+    if (!snap.exists) {
+      throw Object.assign(new Error('Print job not found'), { status: 404 })
     }
-  }
 
-  await ref.update({
-    status: 'queued',
-    rawStatus: 'Payment received — waiting for partner desktop',
-    paymentStatus: 'paid',
-    paymentIntentId: String(paymentIntentId),
-    paidAt: FieldValue.serverTimestamp(),
-    updatedAt: FieldValue.serverTimestamp(),
-  })
+    const data = snap.data() || {}
+    const alreadyPaid =
+      data.paymentStatus === 'paid' ||
+      (data.paymentIntentId &&
+        data.paymentIntentId === paymentIntentId &&
+        data.status === 'queued')
 
-  return {
-    created: true,
-    record: {
+    const record = {
       partnerId,
       printJobId,
       orderNumber: data.orderNumber || null,
       paymentIntentId,
       paymentStatus: 'paid',
+      status: alreadyPaid ? data.status || 'queued' : 'queued',
+    }
+
+    if (alreadyPaid) {
+      return { created: false, record }
+    }
+
+    const customerUid = String(data.customerUid || meta.userId || '')
+    const references = jobReferenceFields({
+      partnerId,
+      printJobId,
+      customerUid,
+    })
+    const paidAt = FieldValue.serverTimestamp()
+
+    transaction.update(ref, {
+      ...references,
       status: 'queued',
-    },
-  }
+      rawStatus: 'Payment received — waiting for partner desktop',
+      paymentStatus: 'paid',
+      paymentIntentId: String(paymentIntentId),
+      paymentPath: recordRef.path,
+      paymentRef: recordRef,
+      paidAt,
+      updatedAt: paidAt,
+    })
+    transaction.set(recordRef, {
+      ...references,
+      paymentIntentId: String(paymentIntentId),
+      paymentPath: recordRef.path,
+      paymentRef: recordRef,
+      checkoutType: 'print_order',
+      orderNumber: String(data.orderNumber || meta.orderNumber || ''),
+      amount: Number(attrs.amount || 0) / 100,
+      amountCentavos: Number(attrs.amount || 0),
+      currency: attrs.currency || 'PHP',
+      paymentStatus: 'paid',
+      providerStatus: attrs.status,
+      paidAt,
+      updatedAt: paidAt,
+    }, { merge: true })
+    writeStatusEvent(transaction, {
+      jobRef: ref,
+      partnerId,
+      printJobId,
+      customerUid,
+      paymentIntentId,
+      status: 'queued',
+      rawStatus: 'Payment received — waiting for partner desktop',
+      source: 'payment',
+    })
+
+    return { created: true, record }
+  })
 }
 
 module.exports = {
