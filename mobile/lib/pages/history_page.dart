@@ -144,6 +144,7 @@ class _HistoryTile extends StatelessWidget {
       'awaiting_payment' => 'Awaiting payment',
       'sending' => 'Sending',
       'queued' => 'Queued',
+      'reprint_queued' => 'Reprint queued',
       'printing' => 'Printing',
       'printed' => 'Printed',
       'failed' => 'Failed',

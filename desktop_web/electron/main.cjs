@@ -12,8 +12,14 @@ const isDev = !app.isPackaged
 const DEV_SERVER_URL = 'http://localhost:5173'
 
 function loadEnvFile() {
-  const envPath = path.join(__dirname, '..', '.env')
-  if (!fs.existsSync(envPath)) {
+  const candidates = isDev
+    ? [path.join(__dirname, '..', '.env')]
+    : [
+        path.join(process.resourcesPath, '.env'),
+        path.join(app.getAppPath(), '.env'),
+      ]
+  const envPath = candidates.find((candidate) => fs.existsSync(candidate))
+  if (!envPath) {
     return
   }
 
@@ -396,6 +402,7 @@ app.whenReady().then(() => {
     const trackId = String(payload.trackId || `track-${Date.now()}`)
     const documentName = String(payload.documentName || `Printstack-${Date.now()}`)
     const copies = Math.max(1, Math.min(50, Number(payload.copies) || 1))
+    const paperSize = resolvePrinterPaperSize(payload)
     let savedFile = ''
 
     try {
@@ -423,6 +430,7 @@ app.whenReady().then(() => {
         printerName: String(payload.printerName || deviceName),
         deviceName,
         copies,
+        paperSize,
       })
 
       sendJobStatus(event.sender, {
@@ -614,13 +622,64 @@ function downloadPdfForPrint(
   })
 }
 
-async function printPdfFile({ filePath, printerName, deviceName, copies }) {
+function resolvePrinterPaperSize(payload = {}) {
+  const raw = String(payload.paperSizeName || '').trim().toLowerCase()
+  const aliases = {
+    letter: 'letter',
+    'us letter': 'letter',
+    legal: 'legal',
+    'us legal': 'legal',
+    tabloid: 'tabloid',
+    ledger: 'tabloid',
+    statement: 'statement',
+    executive: 'executive',
+    a3: 'A3',
+    a4: 'A4',
+    a5: 'A5',
+    'b4 (jis)': 'B4',
+    'b5 (jis)': 'B5',
+    'envelope #9': 'Comm9E',
+    'envelope #10': 'Comm10E',
+  }
+  if (aliases[raw]) {
+    return aliases[raw]
+  }
+
+  const unit = String(payload.paperUnit || 'in').toLowerCase()
+  const factor = unit === 'mm' ? 1 / 25.4 : 1
+  const width = Number(payload.paperWidth) * factor
+  const height = Number(payload.paperHeight) * factor
+  const short = Math.min(width, height)
+  const long = Math.max(width, height)
+  const near = (actual, expected) => Math.abs(actual - expected) <= 0.12
+
+  if (near(short, 8.5) && near(long, 11)) return 'letter'
+  if (near(short, 8.5) && near(long, 14)) return 'legal'
+  if (near(short, 11) && near(long, 17)) return 'tabloid'
+  if (near(short, 8.27) && near(long, 11.69)) return 'A4'
+  if (near(short, 11.69) && near(long, 16.54)) return 'A3'
+  if (near(short, 5.83) && near(long, 8.27)) return 'A5'
+  return ''
+}
+
+function electronPaperSize(paperSize) {
+  const aliases = {
+    letter: 'Letter',
+    legal: 'Legal',
+    tabloid: 'Tabloid',
+    statement: 'Statement',
+    executive: 'Executive',
+  }
+  return aliases[paperSize] || paperSize
+}
+
+async function printPdfFile({ filePath, printerName, deviceName, copies, paperSize }) {
   const targetPrinter = printerName || deviceName
   const errors = []
 
   if (process.platform === 'win32') {
     try {
-      await printWithPdfToPrinter(filePath, targetPrinter, copies)
+      await printWithPdfToPrinter(filePath, targetPrinter, copies, paperSize)
       return
     } catch (error) {
       errors.push(error.message || String(error))
@@ -628,7 +687,7 @@ async function printPdfFile({ filePath, printerName, deviceName, copies }) {
   }
 
   try {
-    await printWithElectron(filePath, deviceName, copies)
+    await printWithElectron(filePath, deviceName, copies, paperSize)
     return
   } catch (error) {
     errors.push(error.message || String(error))
@@ -639,7 +698,7 @@ async function printPdfFile({ filePath, printerName, deviceName, copies }) {
   )
 }
 
-async function printWithPdfToPrinter(filePath, printerName, copies) {
+async function printWithPdfToPrinter(filePath, printerName, copies, paperSize) {
   // pdf-to-printer ships SumatraPDF and does not need a Windows PDF file association.
   const { print, getPrinters } = require('pdf-to-printer')
   const available = await getPrinters()
@@ -661,10 +720,11 @@ async function printWithPdfToPrinter(filePath, printerName, copies) {
     copies,
     silent: true,
     scale: 'fit',
+    ...(paperSize ? { paperSize } : {}),
   })
 }
 
-async function printWithElectron(filePath, deviceName, copies) {
+async function printWithElectron(filePath, deviceName, copies, paperSize) {
   const { pathToFileURL } = require('url')
   const preview = new BrowserWindow({
     show: false,
@@ -680,7 +740,7 @@ async function printWithElectron(filePath, deviceName, copies) {
     await loadUrl(preview, pathToFileURL(filePath).href)
     await sleep(1200)
     for (let i = 0; i < copies; i += 1) {
-      await silentPrint(preview, deviceName)
+      await silentPrint(preview, deviceName, paperSize)
       if (i < copies - 1) {
         await sleep(600)
       }
@@ -692,7 +752,7 @@ async function printWithElectron(filePath, deviceName, copies) {
   }
 }
 
-function silentPrint(win, deviceName) {
+function silentPrint(win, deviceName, paperSize) {
   return new Promise((resolve, reject) => {
     const timeout = setTimeout(() => reject(new Error('Print timed out')), 30000)
     win.webContents.print(
@@ -700,6 +760,7 @@ function silentPrint(win, deviceName) {
         silent: true,
         deviceName,
         printBackground: true,
+        ...(paperSize ? { pageSize: electronPaperSize(paperSize) } : {}),
       },
       (success, failureReason) => {
         clearTimeout(timeout)
@@ -764,7 +825,12 @@ async function listWindowsPrintJobs(printerName) {
   }
 }
 
-async function watchPrintJob({ sender, trackId, deviceName, documentName }) {
+async function watchPrintJob({
+  sender,
+  trackId,
+  deviceName,
+  documentName,
+}) {
   const started = Date.now()
   let seen = false
   let lastStatus = 'printing'
@@ -808,11 +874,11 @@ async function watchPrintJob({ sender, trackId, deviceName, documentName }) {
     await sleep(800)
   }
 
-  if (!sender.isDestroyed()) {
+  if (!sender.isDestroyed() && seen) {
     sendJobStatus(sender, {
       trackId,
-      status: seen && lastStatus !== 'failed' ? 'printed' : lastStatus,
-      rawStatus: seen ? 'Complete' : 'Submitted to printer',
+      status: lastStatus === 'failed' ? 'failed' : 'printed',
+      rawStatus: lastStatus === 'failed' ? 'Error' : 'Complete',
     })
   }
 }

@@ -11,6 +11,7 @@ const STATUSES = new Set([
   'awaiting_payment',
   'sending',
   'queued',
+  'reprint_queued',
   'printing',
   'printed',
   'failed',

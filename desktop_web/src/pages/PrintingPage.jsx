@@ -41,6 +41,7 @@ const STATUS_FILTERS = [
   { value: 'all', label: 'All statuses' },
   { value: 'awaiting_payment', label: 'Awaiting payment' },
   { value: 'queued', label: 'Queued' },
+  { value: 'reprint_queued', label: 'Reprint queued' },
   { value: 'sending', label: 'Sending' },
   { value: 'printing', label: 'Printing' },
   { value: 'printed', label: 'Printed' },
@@ -175,10 +176,11 @@ export default function PrintingPage() {
       if (!payload?.trackId || !payload.status) {
         return
       }
+      const [jobId, documentId = ''] = String(payload.trackId).split(':')
 
       setPrintJobs((current) =>
         current.map((job) =>
-          job.id === payload.trackId
+          job.id === jobId
             ? { ...job, status: payload.status, rawStatus: payload.rawStatus || job.rawStatus }
             : job,
         ),
@@ -186,9 +188,10 @@ export default function PrintingPage() {
 
       try {
         const token = await user.getIdToken()
-        await updatePrintJob(token, payload.trackId, {
+        await updatePrintJob(token, jobId, {
           status: payload.status,
           rawStatus: payload.rawStatus || '',
+          ...(documentId ? { documentId } : {}),
         })
       } catch {
         // Keep the live UI status even if the API write fails.
@@ -291,6 +294,10 @@ export default function PrintingPage() {
                         fileUrl: job.fileUrl,
                         copies: job.copies || 1,
                         localPath: job.localPath || '',
+                        paperSizeName: job.paperSizeName || '',
+                        paperWidth: job.paperWidth || 0,
+                        paperHeight: job.paperHeight || 0,
+                        paperUnit: job.paperUnit || 'in',
                       },
                     ]
                   : []
@@ -308,6 +315,10 @@ export default function PrintingPage() {
                 customerEmail: job.customerEmail || '',
                 createdAt: job.createdAt || '',
                 orderNumber: job.orderNumber || '',
+                paperSizeName: doc.paperSizeName || job.paperSizeName || '',
+                paperWidth: doc.paperWidth || 0,
+                paperHeight: doc.paperHeight || 0,
+                paperUnit: doc.paperUnit || 'in',
               })
               lastLocalPath = printed?.localPath || printed?.savedPath || lastLocalPath
               if (doc.id) {
@@ -549,11 +560,16 @@ export default function PrintingPage() {
         customerEmail: job.customerEmail || '',
         createdAt: job.createdAt || '',
         orderNumber: job.orderNumber || '',
+        paperSizeName: doc.paperSizeName || job.paperSizeName || '',
+        paperWidth: doc.paperWidth || 0,
+        paperHeight: doc.paperHeight || 0,
+        paperUnit: doc.paperUnit || 'in',
+        reprint: true,
       })
 
       await updatePrintJob(token, job.id, {
-        status: 'printing',
-        rawStatus: 'Reprint in Windows print queue',
+        status: 'reprint_queued',
+        rawStatus: 'Reprint added to Windows print queue',
         printerName,
         deviceName,
         documentId,
