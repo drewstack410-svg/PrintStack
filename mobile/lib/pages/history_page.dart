@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../api/api_client.dart';
 import '../components/common/empty_state.dart';
 import '../components/common/error_card.dart';
 import '../components/common/status_chip.dart';
@@ -9,6 +10,54 @@ import '../theme.dart';
 
 class HistoryPage extends StatelessWidget {
   const HistoryPage({super.key});
+
+  Future<void> _cancelReservation(BuildContext context, PrintJob job) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Cancel reservation?'),
+        content: Text(
+          'Cancel reservation #${job.orderNumber}? This cannot be undone.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: const Text('Keep'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(dialogContext, true),
+            child: const Text('Cancel reservation'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !context.mounted) {
+      return;
+    }
+
+    try {
+      final result = await ApiClient.instance.cancelPrintReservation(
+        partnerId: job.partnerId,
+        printJobId: job.id,
+      );
+      if (!context.mounted) return;
+      final refundReview = result['requiresRefundReview'] == true;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            refundReview
+                ? 'Reservation cancelled. The paid order needs refund review.'
+                : 'Reservation cancelled.',
+          ),
+        ),
+      );
+    } on ApiException catch (error) {
+      if (!context.mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(error.message)));
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -50,7 +99,10 @@ class HistoryPage extends StatelessWidget {
           padding: const EdgeInsets.fromLTRB(20, 20, 20, 32),
           itemCount: jobs.length,
           separatorBuilder: (_, _) => const SizedBox(height: 12),
-          itemBuilder: (context, index) => _HistoryTile(job: jobs[index]),
+          itemBuilder: (context, index) => _HistoryTile(
+            job: jobs[index],
+            onCancel: () => _cancelReservation(context, jobs[index]),
+          ),
         );
       },
     );
@@ -58,9 +110,10 @@ class HistoryPage extends StatelessWidget {
 }
 
 class _HistoryTile extends StatelessWidget {
-  const _HistoryTile({required this.job});
+  const _HistoryTile({required this.job, required this.onCancel});
 
   final PrintJob job;
+  final VoidCallback onCancel;
 
   String get _modeLabel {
     if (job.bwPages > 0 && job.colorPages > 0) {
@@ -94,6 +147,7 @@ class _HistoryTile extends StatelessWidget {
       'printing' => 'Printing',
       'printed' => 'Printed',
       'failed' => 'Failed',
+      'cancelled' => 'Cancelled',
       _ => job.status.isEmpty ? 'Queued' : job.status,
     };
 
@@ -199,6 +253,21 @@ class _HistoryTile extends StatelessWidget {
                     fontWeight: FontWeight.w800,
                     color: AppColors.purpleDark,
                   ),
+                ),
+              ],
+              if (job.isReservation &&
+                  job.status != 'cancelled' &&
+                  job.status != 'printing' &&
+                  job.status != 'printed') ...[
+                const SizedBox(height: 4),
+                TextButton(
+                  onPressed: onCancel,
+                  style: TextButton.styleFrom(
+                    foregroundColor: Colors.red.shade700,
+                    visualDensity: VisualDensity.compact,
+                    padding: EdgeInsets.zero,
+                  ),
+                  child: const Text('Cancel'),
                 ),
               ],
             ],

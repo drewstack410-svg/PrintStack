@@ -28,7 +28,9 @@ class AppShell extends StatelessWidget {
     final bottomId = switch (selected) {
       AppNavId.account ||
       AppNavId.location ||
-      AppNavId.payments => AppNavId.home,
+      AppNavId.payments ||
+      AppNavId.settings ||
+      AppNavId.shops => AppNavId.home,
       _ => selected,
     };
     final printSelected = bottomId == AppNavId.print;

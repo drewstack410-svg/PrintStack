@@ -8,6 +8,8 @@ import '../pages/history_page.dart';
 import '../pages/home_page.dart';
 import '../pages/payments_page.dart';
 import '../pages/print_page.dart';
+import '../pages/settings_page.dart';
+import '../pages/shops_page.dart';
 
 /// Top-level authenticated navigation host (bottom nav + sidebar).
 class MainShell extends StatefulWidget {
@@ -25,9 +27,11 @@ class _MainShellState extends State<MainShell> {
     AppNavId.home => 'Home',
     AppNavId.print => 'Find shops',
     AppNavId.history => 'History',
+    AppNavId.shops => 'Shops',
     AppNavId.payments => 'Payments',
+    AppNavId.settings => 'Settings',
     AppNavId.location => 'Location',
-    AppNavId.account => 'Settings',
+    AppNavId.account => 'Profile',
   };
 
   @override
@@ -56,7 +60,9 @@ class _MainShellState extends State<MainShell> {
           },
         ),
         AppNavId.history => const HistoryPage(),
+        AppNavId.shops => const ShopsPage(),
         AppNavId.payments => const PaymentsPage(),
+        AppNavId.settings => const SettingsPage(),
         AppNavId.location => const LocationPage(),
         AppNavId.account => const AccountPage(),
       },

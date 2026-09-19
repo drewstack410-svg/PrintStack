@@ -154,6 +154,16 @@ class ApiClient {
     );
   }
 
+  Future<Map<String, dynamic>> cancelPrintReservation({
+    required String partnerId,
+    required String printJobId,
+  }) {
+    return _request(
+      'POST',
+      '/api/partners/$partnerId/print-jobs/$printJobId/cancel',
+    );
+  }
+
   Future<Map<String, dynamic>> payPrintOrder({
     required String paymentIntentId,
     required String clientKey,

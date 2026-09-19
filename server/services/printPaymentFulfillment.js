@@ -52,6 +52,33 @@ async function fulfillPrintOrderFromPaymentIntent(paymentIntentId) {
     }
 
     const data = snap.data() || {}
+    if (data.status === 'cancelled') {
+      transaction.set(recordRef, {
+        paymentStatus: 'paid',
+        providerStatus: attrs.status,
+        refundStatus: 'manual_review',
+        paidAt: FieldValue.serverTimestamp(),
+        updatedAt: FieldValue.serverTimestamp(),
+      }, { merge: true })
+      transaction.update(ref, {
+        paymentStatus: 'paid',
+        refundStatus: 'manual_review',
+        paidAt: FieldValue.serverTimestamp(),
+        updatedAt: FieldValue.serverTimestamp(),
+      })
+      return {
+        created: false,
+        record: {
+          partnerId,
+          printJobId,
+          orderNumber: data.orderNumber || null,
+          paymentIntentId,
+          paymentStatus: 'paid',
+          status: 'cancelled',
+        },
+      }
+    }
+
     const alreadyPaid =
       data.paymentStatus === 'paid' ||
       (data.paymentIntentId &&
@@ -78,12 +105,17 @@ async function fulfillPrintOrderFromPaymentIntent(paymentIntentId) {
       customerUid,
     })
     const paidAt = FieldValue.serverTimestamp()
+    const isReservation = data.isReservation === true
+    const rawStatus = isReservation
+      ? 'Reservation paid — queued for the shop'
+      : 'Payment received — waiting for partner desktop'
 
     transaction.update(ref, {
       ...references,
       status: 'queued',
-      rawStatus: 'Payment received — waiting for partner desktop',
+      rawStatus,
       paymentStatus: 'paid',
+      reservationStatus: isReservation ? 'confirmed' : '',
       paymentIntentId: String(paymentIntentId),
       paymentPath: recordRef.path,
       paymentRef: recordRef,
@@ -112,7 +144,7 @@ async function fulfillPrintOrderFromPaymentIntent(paymentIntentId) {
       customerUid,
       paymentIntentId,
       status: 'queued',
-      rawStatus: 'Payment received — waiting for partner desktop',
+      rawStatus,
       source: 'payment',
     })
 

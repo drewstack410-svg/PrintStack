@@ -68,7 +68,9 @@ class _PartnerOrderPageState extends State<PartnerOrderPage> {
   void initState() {
     super.initState();
     _livePartner = widget.partner;
-    _partnerStream = PartnersRepository.instance.watchPartner(widget.partner.id);
+    _partnerStream = PartnersRepository.instance.watchPartner(
+      widget.partner.id,
+    );
     _partnerSub = _partnerStream.listen((partner) {
       if (!mounted) return;
       setState(() => _livePartner = partner ?? widget.partner);
@@ -83,10 +85,7 @@ class _PartnerOrderPageState extends State<PartnerOrderPage> {
       _readingPdf = true;
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (!mounted) return;
-        _loadDocument(
-          _picked!,
-          forcedSize: widget.initialPaperSize,
-        );
+        _loadDocument(_picked!, forcedSize: widget.initialPaperSize);
       });
     }
   }
@@ -106,8 +105,7 @@ class _PartnerOrderPageState extends State<PartnerOrderPage> {
   double get _bwUnit => _selectedSize?.priceBw ?? 0;
   double get _colorUnit => _selectedSize?.priceColor ?? 0;
 
-  int get _billedBwPages =>
-      _printColorAsBw ? _totalPages : _bwPages;
+  int get _billedBwPages => _printColorAsBw ? _totalPages : _bwPages;
   int get _billedColorPages => _printColorAsBw ? 0 : _colorPages;
 
   double get _bwSubtotal => _billedBwPages * _copies * _bwUnit;
@@ -282,14 +280,6 @@ class _PartnerOrderPageState extends State<PartnerOrderPage> {
       setState(() => _error = 'Choose a document first.');
       return;
     }
-    if (!_shopOnline) {
-      setState(
-        () => _error =
-            'This shop went offline. You can’t continue until they are online.',
-      );
-      return;
-    }
-
     setState(() {
       _error = null;
       _success = null;
@@ -335,8 +325,7 @@ class _PartnerOrderPageState extends State<PartnerOrderPage> {
               padding: EdgeInsets.fromLTRB(16, 10, 16, 0),
               child: MessageBanner(
                 message:
-                    'This shop is offline. You can’t submit a print request right now.',
-                isError: true,
+                    'This shop is offline. Your print request will be reserved and queued.',
               ),
             ),
           Expanded(
@@ -355,7 +344,8 @@ class _PartnerOrderPageState extends State<PartnerOrderPage> {
                           sizeName: _selectedSize?.name,
                           sizeLabel: _selectedSize?.sizeLabel,
                           sizeMatched: _layoutFromPdf,
-                          onFilterBw: () => _togglePageFilter(_PageInkFilter.bw),
+                          onFilterBw: () =>
+                              _togglePageFilter(_PageInkFilter.bw),
                           onFilterColor: () =>
                               _togglePageFilter(_PageInkFilter.color),
                           onChange: _readingPdf ? null : _chooseDocumentSource,
@@ -536,12 +526,11 @@ class _PartnerOrderPageState extends State<PartnerOrderPage> {
                           width: 120,
                           child: GradientButton(
                             label: !online
-                                ? 'Shop offline'
+                                ? 'Reserve'
                                 : widget.returnDocumentOnly
-                                    ? 'Add to list'
-                                    : 'Continue',
-                            onPressed:
-                                online && _canContinue ? _continueToQueue : null,
+                                ? 'Add to list'
+                                : 'Continue',
+                            onPressed: _canContinue ? _continueToQueue : null,
                           ),
                         ),
                       ],
@@ -558,10 +547,7 @@ class _PartnerOrderPageState extends State<PartnerOrderPage> {
 }
 
 class _ChooseDocumentButton extends StatelessWidget {
-  const _ChooseDocumentButton({
-    required this.onTap,
-    this.busy = false,
-  });
+  const _ChooseDocumentButton({required this.onTap, this.busy = false});
 
   final VoidCallback? onTap;
   final bool busy;
@@ -677,14 +663,32 @@ class _DocumentPreview extends StatelessWidget {
   final VoidCallback? onClear;
 
   static const _greyscaleFilter = ColorFilter.matrix(<double>[
-    0.2126, 0.7152, 0.0722, 0, 0,
-    0.2126, 0.7152, 0.0722, 0, 0,
-    0.2126, 0.7152, 0.0722, 0, 0,
-    0, 0, 0, 1, 0,
+    0.2126,
+    0.7152,
+    0.0722,
+    0,
+    0,
+    0.2126,
+    0.7152,
+    0.0722,
+    0,
+    0,
+    0.2126,
+    0.7152,
+    0.0722,
+    0,
+    0,
+    0,
+    0,
+    0,
+    1,
+    0,
   ]);
 
   bool _pageVisible(int pageNumber) {
-    if (printColorAsBw || pageFilter == _PageInkFilter.all || pageIsColor.isEmpty) {
+    if (printColorAsBw ||
+        pageFilter == _PageInkFilter.all ||
+        pageIsColor.isEmpty) {
       return true;
     }
     final index = pageNumber - 1;
@@ -726,10 +730,7 @@ class _DocumentPreview extends StatelessWidget {
     ];
 
     final contentWidth = visiblePages.isEmpty
-        ? pages.fold<double>(
-            0,
-            (w, page) => math.max(w, page.width.toDouble()),
-          )
+        ? pages.fold<double>(0, (w, page) => math.max(w, page.width.toDouble()))
         : visiblePages.fold<double>(
             0,
             (w, page) => math.max(w, page.width.toDouble()),
@@ -757,12 +758,7 @@ class _DocumentPreview extends StatelessWidget {
         y += pageHeight;
       } else {
         // Park filtered-out pages left of the viewport (still valid size).
-        layouts[i] = Rect.fromLTWH(
-          -pageWidth - 64,
-          0,
-          pageWidth,
-          pageHeight,
-        );
+        layouts[i] = Rect.fromLTWH(-pageWidth - 64, 0, pageWidth, pageHeight);
       }
     }
 
@@ -774,11 +770,11 @@ class _DocumentPreview extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final effectiveFilter =
-        printColorAsBw ? _PageInkFilter.all : pageFilter;
+    final effectiveFilter = printColorAsBw ? _PageInkFilter.all : pageFilter;
     final previewBwPages = printColorAsBw ? bwPages + colorPages : bwPages;
     final previewColorPages = printColorAsBw ? 0 : colorPages;
-    final hasFilteredPages = effectiveFilter == _PageInkFilter.all ||
+    final hasFilteredPages =
+        effectiveFilter == _PageInkFilter.all ||
         _filteredCount > 0 ||
         pageIsColor.isEmpty;
 
@@ -815,10 +811,7 @@ class _DocumentPreview extends StatelessWidget {
           child: ColoredBox(
             color: const Color(0xFFE8ECF4),
             child: printColorAsBw
-                ? ColorFiltered(
-                    colorFilter: _greyscaleFilter,
-                    child: viewer,
-                  )
+                ? ColorFiltered(colorFilter: _greyscaleFilter, child: viewer)
                 : viewer,
           ),
         ),
@@ -958,8 +951,8 @@ class _DocumentPreview extends StatelessWidget {
                   tooltip: printColorAsBw
                       ? 'Showing all pages as B&W'
                       : pageFilter == _PageInkFilter.bw
-                          ? 'Show all pages'
-                          : 'Show B&W pages only',
+                      ? 'Show all pages'
+                      : 'Show B&W pages only',
                   onTap: printColorAsBw || previewBwPages <= 0
                       ? null
                       : onFilterBw,
@@ -974,8 +967,8 @@ class _DocumentPreview extends StatelessWidget {
                   tooltip: printColorAsBw
                       ? 'Color preview disabled'
                       : pageFilter == _PageInkFilter.color
-                          ? 'Show all pages'
-                          : 'Show color pages only',
+                      ? 'Show all pages'
+                      : 'Show color pages only',
                   onTap: printColorAsBw || previewColorPages <= 0
                       ? null
                       : onFilterColor,

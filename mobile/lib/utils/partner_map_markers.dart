@@ -52,7 +52,8 @@ class PartnerMapMarkers {
     Partner partner, {
     required bool selected,
   }) async {
-    final cacheKey = '${partner.id}|${partner.logoUrl}|$selected|lg';
+    final online = partner.location?.online == true;
+    final cacheKey = '${partner.id}|${partner.logoUrl}|$selected|$online|lg';
     final cached = _cache[cacheKey];
     if (cached != null) {
       return cached;
@@ -62,7 +63,7 @@ class PartnerMapMarkers {
       logoUrl: partner.logoUrl,
       name: partner.companyName,
       selected: selected,
-      online: partner.location?.online == true,
+      online: online,
     );
     final descriptor = BitmapDescriptor.bytes(bytes, imagePixelRatio: 2.0);
     _cache[cacheKey] = descriptor;
@@ -93,10 +94,14 @@ class PartnerMapMarkers {
     canvas.drawCircle(center.translate(0, 2.5), radius + 2, shadow);
 
     // Outer ring.
-    final ring = Paint()
-      ..shader = const LinearGradient(
+    final ring = Paint();
+    if (online) {
+      ring.shader = const LinearGradient(
         colors: [AppColors.cyan, AppColors.blue, AppColors.purple],
       ).createShader(Rect.fromCircle(center: center, radius: radius + 5));
+    } else {
+      ring.color = const Color(0xFF616161);
+    }
     canvas.drawCircle(center, radius + 4.5, ring);
 
     // White pad.
@@ -116,12 +121,19 @@ class PartnerMapMarkers {
         image: image,
         fit: BoxFit.cover,
         filterQuality: FilterQuality.high,
+        colorFilter: online
+            ? null
+            : const ColorFilter.mode(Colors.grey, BlendMode.saturation),
       );
     } else {
-      final fill = Paint()
-        ..shader = const LinearGradient(
+      final fill = Paint();
+      if (online) {
+        fill.shader = const LinearGradient(
           colors: [AppColors.cyan, AppColors.purple],
         ).createShader(Rect.fromCircle(center: center, radius: radius));
+      } else {
+        fill.color = const Color(0xFF757575);
+      }
       canvas.drawCircle(center, radius, fill);
       final initial = name.trim().isEmpty ? 'P' : name.trim()[0].toUpperCase();
       final builder =
@@ -162,15 +174,17 @@ class PartnerMapMarkers {
       ..lineTo(center.dx + 9, center.dy + radius - 1)
       ..lineTo(center.dx, size - 5)
       ..close();
-    canvas.drawPath(
-      tip,
-      Paint()
-        ..shader = const LinearGradient(
-          begin: Alignment.topCenter,
-          end: Alignment.bottomCenter,
-          colors: [AppColors.blue, AppColors.purpleDark],
-        ).createShader(Rect.fromLTWH(0, 0, size, size)),
-    );
+    final tipPaint = Paint();
+    if (online) {
+      tipPaint.shader = const LinearGradient(
+        begin: Alignment.topCenter,
+        end: Alignment.bottomCenter,
+        colors: [AppColors.blue, AppColors.purpleDark],
+      ).createShader(Rect.fromLTWH(0, 0, size, size));
+    } else {
+      tipPaint.color = const Color(0xFF424242);
+    }
+    canvas.drawPath(tip, tipPaint);
 
     final picture = recorder.endRecording();
     final rendered = await picture.toImage(size.toInt(), size.toInt());

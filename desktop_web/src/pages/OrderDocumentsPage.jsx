@@ -24,6 +24,7 @@ const STATUS_LABELS = {
   printing: 'Printing',
   printed: 'Printed',
   failed: 'Failed',
+  cancelled: 'Cancelled',
 }
 
 const STATUS_COLORS = {
@@ -33,6 +34,7 @@ const STATUS_COLORS = {
   printing: 'info',
   printed: 'success',
   failed: 'error',
+  cancelled: 'default',
 }
 
 const PDF_PAGE_WIDTH = 794

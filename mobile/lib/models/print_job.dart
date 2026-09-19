@@ -59,6 +59,8 @@ class PrintJob {
     required this.rawStatus,
     required this.paymentStatus,
     required this.paymentIntentId,
+    required this.isReservation,
+    required this.reservationStatus,
     required this.paperSizeName,
     required this.copies,
     required this.pages,
@@ -72,6 +74,7 @@ class PrintJob {
     this.paidAt,
     this.printingStartedAt,
     this.completedAt,
+    this.cancelledAt,
   });
 
   final String id;
@@ -84,6 +87,8 @@ class PrintJob {
   final String rawStatus;
   final String paymentStatus;
   final String paymentIntentId;
+  final bool isReservation;
+  final String reservationStatus;
   final String paperSizeName;
   final int copies;
   final int pages;
@@ -97,6 +102,7 @@ class PrintJob {
   final DateTime? paidAt;
   final DateTime? printingStartedAt;
   final DateTime? completedAt;
+  final DateTime? cancelledAt;
 
   factory PrintJob.fromDoc(
     QueryDocumentSnapshot<Map<String, dynamic>> doc, {
@@ -143,13 +149,16 @@ class PrintJob {
       );
     }
 
-    final pages = documents.fold<int>(0, (sum, d) => sum + d.pages);
-    final bwPages = documents.fold<int>(0, (sum, d) => sum + d.bwPages);
-    final colorPages = documents.fold<int>(0, (sum, d) => sum + d.colorPages);
-    final copies = documents.fold<int>(0, (sum, d) => sum + d.copies);
+    final pages = documents.fold<int>(0, (total, d) => total + d.pages);
+    final bwPages = documents.fold<int>(0, (total, d) => total + d.bwPages);
+    final colorPages = documents.fold<int>(
+      0,
+      (total, d) => total + d.colorPages,
+    );
+    final copies = documents.fold<int>(0, (total, d) => total + d.copies);
     final totalPrice = documents.fold<double>(
       0,
-      (sum, d) => sum + d.totalPrice,
+      (total, d) => total + d.totalPrice,
     );
     final first = documents.isEmpty ? null : documents.first;
     final orderNumber = (data['orderNumber'] ?? doc.id).toString().padLeft(
@@ -173,6 +182,8 @@ class PrintJob {
       rawStatus: (data['rawStatus'] ?? '').toString(),
       paymentStatus: (data['paymentStatus'] ?? '').toString(),
       paymentIntentId: (data['paymentIntentId'] ?? '').toString(),
+      isReservation: data['isReservation'] == true,
+      reservationStatus: (data['reservationStatus'] ?? '').toString(),
       paperSizeName:
           first?.paperSizeName ?? (data['paperSizeName'] ?? '').toString(),
       copies: copies > 0 ? copies : ((data['copies'] as num?)?.toInt() ?? 1),
@@ -193,6 +204,7 @@ class PrintJob {
       paidAt: readDate('paidAt'),
       printingStartedAt: readDate('printingStartedAt'),
       completedAt: readDate('completedAt'),
+      cancelledAt: readDate('cancelledAt'),
     );
   }
 }

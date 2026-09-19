@@ -14,6 +14,7 @@ const STATUSES = new Set([
   'printing',
   'printed',
   'failed',
+  'cancelled',
 ])
 
 function jobsRef(partnerId) {
@@ -212,6 +213,9 @@ function mapJob(doc) {
     customerName: data.customerName || '',
     paymentStatus: data.paymentStatus || '',
     paymentIntentId: data.paymentIntentId || '',
+    isReservation: data.isReservation === true,
+    reservationStatus: data.reservationStatus || '',
+    cancelledAt: data.cancelledAt?.toDate?.()?.toISOString?.() || null,
     paidAt: data.paidAt?.toDate?.()?.toISOString?.() || null,
     printingStartedAt: data.printingStartedAt?.toDate?.()?.toISOString?.() || null,
     completedAt: data.completedAt?.toDate?.()?.toISOString?.() || null,
@@ -408,12 +412,7 @@ async function createCustomerPrintJob(req, res) {
   }
 
   const partnerData = partnerSnap.data() || {}
-  if (!isLocationOnline(partnerData.location)) {
-    res.status(409).json({
-      error: 'This shop is currently offline. Try again when they are online.',
-    })
-    return
-  }
+  const isReservation = !isLocationOnline(partnerData.location)
 
   if (partnerData.services && partnerData.services.printing === false) {
     res.status(403).json({ error: 'Printing is not enabled for this partner' })
@@ -480,9 +479,15 @@ async function createCustomerPrintJob(req, res) {
     deviceName: '',
     status: needsPayment ? 'awaiting_payment' : 'queued',
     rawStatus: needsPayment
-      ? 'Awaiting online payment'
-      : 'Waiting for partner desktop',
+      ? isReservation
+        ? 'Reserved — awaiting online payment'
+        : 'Awaiting online payment'
+      : isReservation
+        ? 'Reserved — waiting for the shop to come online'
+        : 'Waiting for partner desktop',
     source: 'mobile',
+    isReservation,
+    reservationStatus: isReservation ? 'pending' : '',
     customerUid: req.user.uid,
     customerEmail: req.profile?.email || req.user.email || '',
     customerName,
@@ -508,6 +513,69 @@ async function createCustomerPrintJob(req, res) {
   res.status(201).json({
     printJob: mapJob(snap),
     requiresPayment: needsPayment,
+    isReservation,
+  })
+}
+
+async function cancelCustomerReservation(req, res) {
+  const partnerId = String(req.params.partnerId || '').trim()
+  const printJobId = String(req.params.id || '').trim()
+  if (!partnerId || !printJobId) {
+    res.status(400).json({ error: 'Partner id and print job id are required' })
+    return
+  }
+
+  const ref = jobsRef(partnerId).doc(printJobId)
+  const snap = await ref.get()
+  if (!snap.exists) {
+    res.status(404).json({ error: 'Print reservation not found' })
+    return
+  }
+
+  const existing = snap.data() || {}
+  if (String(existing.customerUid || '') !== String(req.user.uid)) {
+    res.status(403).json({ error: 'You cannot cancel this reservation' })
+    return
+  }
+  if (existing.isReservation !== true) {
+    res.status(400).json({ error: 'This print order is not a reservation' })
+    return
+  }
+  if (existing.status === 'cancelled') {
+    res.json({ printJob: mapJob(snap), alreadyCancelled: true })
+    return
+  }
+  if (existing.status === 'printing' || existing.status === 'printed') {
+    res.status(409).json({ error: 'This reservation is already being processed' })
+    return
+  }
+
+  const rawStatus = 'Reservation cancelled by customer'
+  const batch = db.batch()
+  batch.update(ref, {
+    status: 'cancelled',
+    rawStatus,
+    reservationStatus: 'cancelled',
+    cancelledAt: FieldValue.serverTimestamp(),
+    updatedAt: FieldValue.serverTimestamp(),
+    refundStatus: existing.paymentStatus === 'paid' ? 'manual_review' : '',
+  })
+  writeStatusEvent(batch, {
+    jobRef: ref,
+    partnerId,
+    printJobId,
+    customerUid: existing.customerUid || '',
+    paymentIntentId: existing.paymentIntentId || '',
+    status: 'cancelled',
+    rawStatus,
+    source: 'customer',
+  })
+  await batch.commit()
+
+  const updated = await ref.get()
+  res.json({
+    printJob: mapJob(updated),
+    requiresRefundReview: existing.paymentStatus === 'paid',
   })
 }
 
@@ -614,5 +682,6 @@ module.exports = {
   listPrintJobs,
   createPrintJob,
   createCustomerPrintJob,
+  cancelCustomerReservation,
   updatePrintJob,
 }

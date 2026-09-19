@@ -5,6 +5,7 @@ import '../components/common/empty_state.dart';
 import '../components/common/message_banner.dart';
 import '../components/partners/partner_avatar.dart';
 import '../models/partner.dart';
+import '../services/favorites_repository.dart';
 import '../services/partners_repository.dart';
 import '../theme.dart';
 import '../utils/document_intake.dart';
@@ -79,18 +80,8 @@ class _ShopPricingPageState extends State<ShopPricingPage> {
   }
 
   Future<void> _openOrder(Partner partner) async {
-    if (partner.location?.online != true) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('This shop went offline.')),
-      );
-      return;
-    }
-
     final sizes = _sizesOf(partner);
-    final picked = await intakePrintDocument(
-      context,
-      layouts: sizes,
-    );
+    final picked = await intakePrintDocument(context, layouts: sizes);
     if (!mounted || picked == null) {
       return;
     }
@@ -117,8 +108,9 @@ class _ShopPricingPageState extends State<ShopPricingPage> {
         final filtered = _filteredOf(partner);
         final sizes = _sizesOf(partner);
         final bottomInset = MediaQuery.paddingOf(context).bottom;
-        final shopName =
-            partner.companyName.isEmpty ? 'Shop pricing' : partner.companyName;
+        final shopName = partner.companyName.isEmpty
+            ? 'Shop pricing'
+            : partner.companyName;
 
         return Scaffold(
           backgroundColor: AppColors.mist,
@@ -126,11 +118,7 @@ class _ShopPricingPageState extends State<ShopPricingPage> {
             titleSpacing: 0,
             title: Row(
               children: [
-                PartnerAvatar(
-                  url: partner.logoUrl,
-                  name: shopName,
-                  size: 34,
-                ),
+                PartnerAvatar(url: partner.logoUrl, name: shopName, size: 34),
                 const SizedBox(width: 10),
                 Expanded(
                   child: Text(
@@ -142,6 +130,27 @@ class _ShopPricingPageState extends State<ShopPricingPage> {
               ],
             ),
             actions: [
+              StreamBuilder<Set<String>>(
+                stream: FavoritesRepository.instance.watchFavoriteShopIds(),
+                builder: (context, favoritesSnapshot) {
+                  final favoriteIds =
+                      favoritesSnapshot.data ?? const <String>{};
+                  final isFavorite = favoriteIds.contains(partner.id);
+                  return IconButton(
+                    tooltip: isFavorite
+                        ? 'Remove from favorites'
+                        : 'Add to favorites',
+                    onPressed: () => FavoritesRepository.instance.setFavorite(
+                      partner.id,
+                      favorite: !isFavorite,
+                    ),
+                    icon: Icon(
+                      isFavorite ? Icons.favorite : Icons.favorite_border,
+                      color: isFavorite ? Colors.redAccent : Colors.white,
+                    ),
+                  );
+                },
+              ),
               Padding(
                 padding: const EdgeInsets.only(right: 16),
                 child: Center(child: _StatusGlowLight(online: online)),
@@ -154,14 +163,18 @@ class _ShopPricingPageState extends State<ShopPricingPage> {
                 const Padding(
                   padding: EdgeInsets.fromLTRB(14, 12, 14, 0),
                   child: MessageBanner(
-                    message: 'This shop is offline. Printing is unavailable.',
-                    isError: true,
+                    message:
+                        'This shop is offline. You can reserve printing and it will be queued for the shop.',
                   ),
                 ),
               Expanded(
                 child: ListView(
-                  padding:
-                      EdgeInsets.fromLTRB(14, 12, 14, 20 + bottomInset + 80),
+                  padding: EdgeInsets.fromLTRB(
+                    14,
+                    12,
+                    14,
+                    20 + bottomInset + 80,
+                  ),
                   children: [
                     TextField(
                       controller: _searchController,
@@ -187,7 +200,7 @@ class _ShopPricingPageState extends State<ShopPricingPage> {
                       children: [
                         Expanded(
                           child: DropdownButtonFormField<_UnitFilter>(
-                            value: _unitFilter,
+                            initialValue: _unitFilter,
                             isDense: true,
                             decoration: const InputDecoration(
                               isDense: true,
@@ -222,7 +235,7 @@ class _ShopPricingPageState extends State<ShopPricingPage> {
                         const SizedBox(width: 8),
                         Expanded(
                           child: DropdownButtonFormField<_SortMode>(
-                            value: _sortMode,
+                            initialValue: _sortMode,
                             isDense: true,
                             decoration: const InputDecoration(
                               isDense: true,
@@ -309,8 +322,8 @@ class _ShopPricingPageState extends State<ShopPricingPage> {
                   child: Padding(
                     padding: const EdgeInsets.fromLTRB(14, 10, 14, 10),
                     child: GradientButton(
-                      label: online ? 'Print at this shop' : 'Shop offline',
-                      onPressed: !online || sizes.isEmpty
+                      label: online ? 'Print at this shop' : 'Reserve printing',
+                      onPressed: sizes.isEmpty
                           ? null
                           : () => _openOrder(partner),
                     ),
@@ -407,10 +420,7 @@ class _PricingRow extends StatelessWidget {
                 const SizedBox(height: 2),
                 Text(
                   size.sizeLabel,
-                  style: const TextStyle(
-                    color: AppColors.muted,
-                    fontSize: 12,
-                  ),
+                  style: const TextStyle(color: AppColors.muted, fontSize: 12),
                 ),
               ],
             ),

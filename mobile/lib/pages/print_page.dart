@@ -17,10 +17,7 @@ import 'shop_pricing_page.dart';
 
 /// Print tab: Philippines map of partners + floating partner cards.
 class PrintPage extends StatefulWidget {
-  const PrintPage({
-    super.key,
-    this.onSearchFocusChanged,
-  });
+  const PrintPage({super.key, this.onSearchFocusChanged});
 
   final ValueChanged<bool>? onSearchFocusChanged;
 
@@ -30,6 +27,7 @@ class PrintPage extends StatefulWidget {
 
 class _PrintPageState extends State<PrintPage> {
   late Stream<List<Partner>> _partnersStream;
+
   /// Show ~3 partner cards at once in the bottom slider.
   final _pageController = PageController(viewportFraction: 0.28);
   final _searchController = TextEditingController();
@@ -64,7 +62,7 @@ class _PrintPageState extends State<PrintPage> {
   @override
   void initState() {
     super.initState();
-    _partnersStream = PartnersRepository.instance.watchOnlinePartners();
+    _partnersStream = PartnersRepository.instance.watchPartners();
     _searchFocus.addListener(() {
       if (!mounted) {
         return;
@@ -104,7 +102,8 @@ class _PrintPageState extends State<PrintPage> {
         }
       }
 
-      final allowed = serviceOn &&
+      final allowed =
+          serviceOn &&
           permission != LocationPermission.denied &&
           permission != LocationPermission.deniedForever;
 
@@ -128,19 +127,20 @@ class _PrintPageState extends State<PrintPage> {
         unawaited(_runIntroFlyIfReady());
 
         await _positionSub?.cancel();
-        _positionSub = Geolocator.getPositionStream(
-          locationSettings: const LocationSettings(
-            accuracy: LocationAccuracy.high,
-            distanceFilter: 8,
-          ),
-        ).listen((position) {
-          if (!mounted) {
-            return;
-          }
-          setState(() {
-            _myLatLng = LatLng(position.latitude, position.longitude);
-          });
-        });
+        _positionSub =
+            Geolocator.getPositionStream(
+              locationSettings: const LocationSettings(
+                accuracy: LocationAccuracy.high,
+                distanceFilter: 8,
+              ),
+            ).listen((position) {
+              if (!mounted) {
+                return;
+              }
+              setState(() {
+                _myLatLng = LatLng(position.latitude, position.longitude);
+              });
+            });
         return;
       }
 
@@ -188,9 +188,7 @@ class _PrintPageState extends State<PrintPage> {
       return;
     }
     await _mapController!.animateCamera(
-      CameraUpdate.newCameraPosition(
-        CameraPosition(target: me, zoom: 14.5),
-      ),
+      CameraUpdate.newCameraPosition(CameraPosition(target: me, zoom: 14.5)),
     );
     _tryAutoSelectNearest();
   }
@@ -215,9 +213,7 @@ class _PrintPageState extends State<PrintPage> {
       return;
     }
     await controller.animateCamera(
-      CameraUpdate.newCameraPosition(
-        CameraPosition(target: point, zoom: 15),
-      ),
+      CameraUpdate.newCameraPosition(CameraPosition(target: point, zoom: 15)),
     );
   }
 
@@ -255,36 +251,36 @@ class _PrintPageState extends State<PrintPage> {
   }
 
   List<Partner> _withLocations(List<Partner> partners) {
-    return partners
-        .where((p) {
-          final loc = p.location;
-          if (loc == null || loc.online != true) {
-            return false;
-          }
-          if (loc.lat == 0 && loc.lng == 0) {
-            return false;
-          }
-          return PartnerMapMarkers.isInPhilippines(loc.lat, loc.lng);
-        })
-        .toList()
-      ..sort((a, b) {
-        final aDist = _distanceMetersTo(a);
-        final bDist = _distanceMetersTo(b);
-        if (aDist != null && bDist != null) {
-          final byDistance = aDist.compareTo(bDist);
-          if (byDistance != 0) {
-            return byDistance;
-          }
-        } else if (aDist != null) {
-          return -1;
-        } else if (bDist != null) {
-          return 1;
+    return partners.where((p) {
+      final loc = p.location;
+      if (loc == null) {
+        return false;
+      }
+      if (loc.lat == 0 && loc.lng == 0) {
+        return false;
+      }
+      return PartnerMapMarkers.isInPhilippines(loc.lat, loc.lng);
+    }).toList()..sort((a, b) {
+      final aOnline = a.location?.online == true;
+      final bOnline = b.location?.online == true;
+      if (aOnline != bOnline) {
+        return aOnline ? -1 : 1;
+      }
+      final aDist = _distanceMetersTo(a);
+      final bDist = _distanceMetersTo(b);
+      if (aDist != null && bDist != null) {
+        final byDistance = aDist.compareTo(bDist);
+        if (byDistance != 0) {
+          return byDistance;
         }
+      } else if (aDist != null) {
+        return -1;
+      } else if (bDist != null) {
+        return 1;
+      }
 
-        return a.companyName
-            .toLowerCase()
-            .compareTo(b.companyName.toLowerCase());
-      });
+      return a.companyName.toLowerCase().compareTo(b.companyName.toLowerCase());
+    });
   }
 
   Future<void> _rebuildMarkers(List<Partner> partners) async {
@@ -441,12 +437,6 @@ class _PrintPageState extends State<PrintPage> {
   }
 
   void _openOrder(Partner partner) {
-    if (partner.location?.online != true) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('This shop is offline.')),
-      );
-      return;
-    }
     Navigator.of(context).push(
       MaterialPageRoute<void>(
         builder: (_) => ShopPricingPage(partner: partner),
@@ -459,12 +449,14 @@ class _PrintPageState extends State<PrintPage> {
     if (q.isEmpty) {
       return partners;
     }
-    return partners.where((partner) {
-      final name = partner.companyName.toLowerCase();
-      final email = partner.email.toLowerCase();
-      final label = (partner.location?.label ?? '').toLowerCase();
-      return name.contains(q) || email.contains(q) || label.contains(q);
-    }).toList(growable: false);
+    return partners
+        .where((partner) {
+          final name = partner.companyName.toLowerCase();
+          final email = partner.email.toLowerCase();
+          final label = (partner.location?.label ?? '').toLowerCase();
+          return name.contains(q) || email.contains(q) || label.contains(q);
+        })
+        .toList(growable: false);
   }
 
   void _pickFromSearch(Partner partner, List<Partner> visible) {
@@ -538,8 +530,9 @@ class _PrintPageState extends State<PrintPage> {
         final selectedInCarousel = _selectedId == null
             ? -1
             : carouselPartners.indexWhere((p) => p.id == _selectedId);
-        final carouselPageIndex =
-            selectedInCarousel >= 0 ? selectedInCarousel : _pageIndex;
+        final carouselPageIndex = selectedInCarousel >= 0
+            ? selectedInCarousel
+            : _pageIndex;
 
         return Stack(
           fit: StackFit.expand,
@@ -584,9 +577,7 @@ class _PrintPageState extends State<PrintPage> {
                       textInputAction: TextInputAction.search,
                       decoration: InputDecoration(
                         isDense: true,
-                        hintText: searching
-                            ? 'Nearby shops'
-                            : 'Search shops…',
+                        hintText: searching ? 'Nearby shops' : 'Search shops…',
                         border: InputBorder.none,
                         enabledBorder: InputBorder.none,
                         focusedBorder: InputBorder.none,
@@ -627,7 +618,7 @@ class _PrintPageState extends State<PrintPage> {
                                 ),
                                 child: Text(
                                   _query.trim().isEmpty
-                                      ? 'No nearby shops online.'
+                                      ? 'No shops with map locations.'
                                       : 'No shops match that search.',
                                   style: const TextStyle(
                                     color: AppColors.muted,
@@ -650,8 +641,7 @@ class _PrintPageState extends State<PrintPage> {
                                   final name = partner.companyName.isEmpty
                                       ? 'Shop'
                                       : partner.companyName;
-                                  final distance =
-                                      _distanceMetersTo(partner);
+                                  final distance = _distanceMetersTo(partner);
                                   final meta = [
                                     if ((partner.location?.label ?? '')
                                         .trim()
@@ -724,11 +714,17 @@ class _PrintPageState extends State<PrintPage> {
             if (!searching)
               Positioned(
                 right: 12,
-                bottom: carouselPartners.isEmpty ? 24 : 148,
+                bottom: carouselPartners.isEmpty ? 58 : 172,
                 child: _TravelModeFab(
                   selected: _travelMode,
                   onChanged: _setTravelMode,
                 ),
+              ),
+            if (!searching)
+              Positioned(
+                right: 12,
+                bottom: carouselPartners.isEmpty ? 12 : 126,
+                child: const _MapLegend(),
               ),
             if (snapshot.connectionState == ConnectionState.waiting &&
                 !snapshot.hasData)
@@ -750,17 +746,14 @@ class _PrintPageState extends State<PrintPage> {
                   ),
                 ),
               ),
-            if (!snapshot.hasError &&
-                snapshot.hasData &&
-                mappable.isEmpty)
+            if (!snapshot.hasError && snapshot.hasData && mappable.isEmpty)
               const Positioned(
                 left: 24,
                 right: 24,
                 top: 72,
                 child: _MapBanner(
-                  title: 'No shops online',
-                  message:
-                      'Only active shops appear here. Check back when a partner comes online.',
+                  title: 'No shops on the map',
+                  message: 'Shops with a valid location will appear here.',
                 ),
               ),
             if (!searching && carouselPartners.isNotEmpty)
@@ -789,6 +782,55 @@ class _PrintPageState extends State<PrintPage> {
           ],
         );
       },
+    );
+  }
+}
+
+class _MapLegend extends StatelessWidget {
+  const _MapLegend();
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: Colors.white,
+      elevation: 2,
+      borderRadius: BorderRadius.circular(10),
+      child: const Padding(
+        padding: EdgeInsets.symmetric(horizontal: 10, vertical: 7),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            _LegendDot(color: Color(0xFF7C3AED)),
+            SizedBox(width: 5),
+            Text(
+              'Online',
+              style: TextStyle(fontSize: 11, fontWeight: FontWeight.w700),
+            ),
+            SizedBox(width: 12),
+            _LegendDot(color: Color(0xFF616161)),
+            SizedBox(width: 5),
+            Text(
+              'Offline',
+              style: TextStyle(fontSize: 11, fontWeight: FontWeight.w700),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _LegendDot extends StatelessWidget {
+  const _LegendDot({required this.color});
+
+  final Color color;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: 10,
+      height: 10,
+      decoration: BoxDecoration(color: color, shape: BoxShape.circle),
     );
   }
 }
@@ -824,9 +866,7 @@ class _PartnerCarousel extends StatelessWidget {
           child: PageView.builder(
             controller: controller,
             itemCount: partners.length,
-            physics: const BouncingScrollPhysics(
-              parent: PageScrollPhysics(),
-            ),
+            physics: const BouncingScrollPhysics(parent: PageScrollPhysics()),
             padEnds: true,
             onPageChanged: onPageChanged,
             itemBuilder: (context, index) {
@@ -846,7 +886,9 @@ class _PartnerCarousel extends StatelessWidget {
                       selected: selected,
                       distanceMeters: distanceMetersFor(partner),
                       routeEta: selected ? selectedRoute?.etaLabel : null,
-                      routeDistance: selected ? selectedRoute?.distanceText : null,
+                      routeDistance: selected
+                          ? selectedRoute?.distanceText
+                          : null,
                       onTap: () => onOpen(partner),
                     ),
                   ),
@@ -867,9 +909,7 @@ class _PartnerCarousel extends StatelessWidget {
             color: Colors.white.withValues(alpha: 0.88),
             fontWeight: FontWeight.w700,
             fontSize: 11,
-            shadows: const [
-              Shadow(color: Colors.black54, blurRadius: 8),
-            ],
+            shadows: const [Shadow(color: Colors.black54, blurRadius: 8)],
           ),
         ),
       ],
@@ -886,9 +926,7 @@ class _PageDots extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final visible = count > 8 ? 8 : count;
-    final start = count <= 8
-        ? 0
-        : (index - 3).clamp(0, count - visible);
+    final start = count <= 8 ? 0 : (index - 3).clamp(0, count - visible);
 
     return Row(
       mainAxisAlignment: MainAxisAlignment.center,
@@ -901,9 +939,7 @@ class _PageDots extends StatelessWidget {
           width: active ? 16 : 7,
           height: 7,
           decoration: BoxDecoration(
-            color: active
-                ? Colors.white
-                : Colors.white.withValues(alpha: 0.35),
+            color: active ? Colors.white : Colors.white.withValues(alpha: 0.35),
             borderRadius: BorderRadius.circular(999),
           ),
         );
@@ -1006,9 +1042,7 @@ class _FloatingPartnerCard extends StatelessWidget {
               ),
               const SizedBox(height: 5),
               Text(
-                partner.companyName.isEmpty
-                    ? 'Untitled'
-                    : partner.companyName,
+                partner.companyName.isEmpty ? 'Untitled' : partner.companyName,
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
                 textAlign: TextAlign.center,
@@ -1082,9 +1116,9 @@ class _OnlineGlowPingState extends State<_OnlineGlowPing>
                 height: 11 * (0.55 + t * 0.9),
                 decoration: BoxDecoration(
                   shape: BoxShape.circle,
-                  color: const Color(0xFF22C55E).withValues(
-                    alpha: 0.35 * pulse,
-                  ),
+                  color: const Color(
+                    0xFF22C55E,
+                  ).withValues(alpha: 0.35 * pulse),
                 ),
               ),
               Container(
@@ -1112,10 +1146,7 @@ class _OnlineGlowPingState extends State<_OnlineGlowPing>
 }
 
 class _RouteTrafficChip extends StatelessWidget {
-  const _RouteTrafficChip({
-    required this.route,
-    required this.onLocate,
-  });
+  const _RouteTrafficChip({required this.route, required this.onLocate});
 
   final DirectionsRoute route;
   final VoidCallback onLocate;
@@ -1200,10 +1231,7 @@ class _LocateChip extends StatelessWidget {
 }
 
 class _TravelModeFab extends StatelessWidget {
-  const _TravelModeFab({
-    required this.selected,
-    required this.onChanged,
-  });
+  const _TravelModeFab({required this.selected, required this.onChanged});
 
   final TravelMode selected;
   final ValueChanged<TravelMode> onChanged;

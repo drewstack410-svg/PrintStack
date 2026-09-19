@@ -18,6 +18,7 @@ const STATUS_LABELS = {
   printing: 'Printing',
   printed: 'Printed',
   failed: 'Failed',
+  cancelled: 'Cancelled',
 }
 
 const STATUS_COLORS = {
@@ -27,6 +28,7 @@ const STATUS_COLORS = {
   printing: 'info',
   printed: 'success',
   failed: 'error',
+  cancelled: 'default',
 }
 
 function formatWhen(iso) {
@@ -164,7 +166,11 @@ function OrderCard({
           <Chip
             size="small"
             color={STATUS_COLORS[job.status] || 'default'}
-            label={STATUS_LABELS[job.status] || job.status}
+            label={
+              job.isReservation && job.status === 'queued'
+                ? 'Reserved · Queued'
+                : STATUS_LABELS[job.status] || job.status
+            }
             sx={{ height: 22, flexShrink: 0, fontWeight: 700, '& .MuiChip-label': { px: 0.9, fontSize: 11 } }}
           />
         </Stack>

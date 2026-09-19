@@ -24,6 +24,7 @@ const {
 const { updateMyLocation } = require('../controllers/locationController')
 const { locate, reverse, autocomplete, resolvePlace, route } = require('../controllers/geoController')
 const {
+  cancelCustomerReservation,
   createPrintJob,
   createCustomerPrintJob,
   listPrintJobs,
@@ -75,6 +76,11 @@ router.post(
   '/partners/:partnerId/print-jobs',
   requireAuth,
   createCustomerPrintJob,
+)
+router.post(
+  '/partners/:partnerId/print-jobs/:id/cancel',
+  requireAuth,
+  cancelCustomerReservation,
 )
 router.get('/staffs', requireAuth, requireAdmin, listStaffs)
 router.post('/staffs', requireAuth, requireAdmin, createStaff)

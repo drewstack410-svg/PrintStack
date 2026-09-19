@@ -45,6 +45,7 @@ const STATUS_FILTERS = [
   { value: 'printing', label: 'Printing' },
   { value: 'printed', label: 'Printed' },
   { value: 'failed', label: 'Failed' },
+  { value: 'cancelled', label: 'Cancelled' },
 ]
 
 const SOURCE_FILTERS = [

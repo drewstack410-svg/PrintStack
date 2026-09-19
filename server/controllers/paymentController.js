@@ -97,6 +97,9 @@ async function loadPayablePrintJob({ partnerId, printJobId, userId }) {
   }
 
   const data = snap.data() || {}
+  if (data.status === 'cancelled') {
+    throw Object.assign(new Error('This reservation has been cancelled'), { status: 409 })
+  }
   if (data.customerUid && String(data.customerUid) !== String(userId)) {
     throw Object.assign(new Error('You are not authorized to pay for this order'), {
       status: 403,

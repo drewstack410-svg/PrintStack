@@ -116,7 +116,10 @@ function mapJob(docSnap) {
     customerName: data.customerName || '',
     paymentStatus: data.paymentStatus || '',
     paymentIntentId: data.paymentIntentId || '',
+    isReservation: data.isReservation === true,
+    reservationStatus: data.reservationStatus || '',
     paidAt: toIso(data.paidAt),
+    cancelledAt: toIso(data.cancelledAt),
     createdAt: toIso(data.createdAt),
     updatedAt: toIso(data.updatedAt),
   }

@@ -45,7 +45,9 @@ class _PrintQueuePageState extends State<PrintQueuePage> {
     super.initState();
     _documents = List<PrintDraftDocument>.from(widget.documents);
     _livePartner = widget.partner;
-    _partnerStream = PartnersRepository.instance.watchPartner(widget.partner.id);
+    _partnerStream = PartnersRepository.instance.watchPartner(
+      widget.partner.id,
+    );
   }
 
   bool get _shopOnline => _livePartner?.location?.online == true;
@@ -69,10 +71,8 @@ class _PrintQueuePageState extends State<PrintQueuePage> {
   Future<void> _addMore() async {
     final added = await Navigator.of(context).push<PrintDraftDocument>(
       MaterialPageRoute(
-        builder: (_) => PartnerOrderPage(
-          partner: widget.partner,
-          returnDocumentOnly: true,
-        ),
+        builder: (_) =>
+            PartnerOrderPage(partner: widget.partner, returnDocumentOnly: true),
       ),
     );
 
@@ -92,14 +92,6 @@ class _PrintQueuePageState extends State<PrintQueuePage> {
       setState(() => _error = 'Add at least one document to print.');
       return;
     }
-    if (!_shopOnline) {
-      setState(
-        () => _error =
-            'This shop went offline. You can’t submit until they are online again.',
-      );
-      return;
-    }
-
     setState(() {
       _printing = true;
       _error = null;
@@ -145,6 +137,7 @@ class _PrintQueuePageState extends State<PrintQueuePage> {
           (printJob['orderNumber'] ?? result['orderNumber'])?.toString() ?? '';
       final printJobId = (printJob['id'] ?? '').toString();
       final requiresPayment = result['requiresPayment'] == true;
+      final isReservation = result['isReservation'] == true;
       final amountDisplay =
           (printJob['totalPrice'] as num?)?.toStringAsFixed(2) ??
           _orderTotal.toStringAsFixed(2);
@@ -176,17 +169,17 @@ class _PrintQueuePageState extends State<PrintQueuePage> {
       }
 
       final message = orderNumber.isEmpty
-          ? 'Order submitted · ${_documents.length} document${_documents.length == 1 ? '' : 's'}.'
-          : 'Order #$orderNumber submitted · ${_documents.length} document${_documents.length == 1 ? '' : 's'}.';
+          ? '${isReservation ? 'Reservation' : 'Order'} submitted · ${_documents.length} document${_documents.length == 1 ? '' : 's'}.'
+          : '${isReservation ? 'Reservation' : 'Order'} #$orderNumber submitted · ${_documents.length} document${_documents.length == 1 ? '' : 's'}.';
 
       setState(() {
         _success = message;
         _documents.clear();
       });
 
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(message)),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(message)));
       Navigator.of(context).pop();
     } on ApiException catch (error) {
       if (mounted) {
@@ -205,8 +198,9 @@ class _PrintQueuePageState extends State<PrintQueuePage> {
 
   @override
   Widget build(BuildContext context) {
-    final shopName =
-        widget.partner.companyName.isEmpty ? 'Shop' : widget.partner.companyName;
+    final shopName = widget.partner.companyName.isEmpty
+        ? 'Shop'
+        : widget.partner.companyName;
 
     return StreamBuilder<Partner?>(
       stream: _partnerStream,
@@ -218,9 +212,7 @@ class _PrintQueuePageState extends State<PrintQueuePage> {
 
         return Scaffold(
           backgroundColor: AppColors.mist,
-          appBar: AppBar(
-            title: const Text('Papers to print'),
-          ),
+          appBar: AppBar(title: const Text('Papers to print')),
           body: Column(
             children: [
               if (!online)
@@ -228,8 +220,7 @@ class _PrintQueuePageState extends State<PrintQueuePage> {
                   padding: EdgeInsets.fromLTRB(16, 12, 16, 0),
                   child: MessageBanner(
                     message:
-                        'This shop is offline. Submitting is disabled until they come back online.',
-                    isError: true,
+                        'This shop is offline. Submit now to reserve printing.',
                   ),
                 ),
               Expanded(
@@ -258,20 +249,22 @@ class _PrintQueuePageState extends State<PrintQueuePage> {
                             final doc = _documents[index];
                             return Padding(
                               padding: const EdgeInsets.only(bottom: 10),
-                          child: _QueueDocCard(
-                            doc: doc,
-                            onRemove:
-                                _printing ? null : () => _removeAt(index),
-                            onToggleForceBw: !_printing && doc.hasDetectedColor
-                                ? (value) {
-                                    setState(() {
-                                      _documents[index] = doc.copyWith(
-                                        forceBlackAndWhite: value,
-                                      );
-                                    });
-                                  }
-                                : null,
-                          ),
+                              child: _QueueDocCard(
+                                doc: doc,
+                                onRemove: _printing
+                                    ? null
+                                    : () => _removeAt(index),
+                                onToggleForceBw:
+                                    !_printing && doc.hasDetectedColor
+                                    ? (value) {
+                                        setState(() {
+                                          _documents[index] = doc.copyWith(
+                                            forceBlackAndWhite: value,
+                                          );
+                                        });
+                                      }
+                                    : null,
+                              ),
                             );
                           }),
                         ],
@@ -338,8 +331,7 @@ class _PrintQueuePageState extends State<PrintQueuePage> {
                           onPressed: _printing ? null : _addMore,
                           style: OutlinedButton.styleFrom(
                             minimumSize: const Size(0, 48),
-                            padding:
-                                const EdgeInsets.symmetric(horizontal: 16),
+                            padding: const EdgeInsets.symmetric(horizontal: 16),
                           ),
                           child: const Text('Add more'),
                         ),
@@ -347,11 +339,9 @@ class _PrintQueuePageState extends State<PrintQueuePage> {
                         SizedBox(
                           width: 132,
                           child: GradientButton(
-                            label: online ? 'Pay & print' : 'Offline',
+                            label: online ? 'Pay & print' : 'Reserve',
                             busy: _printing,
-                            onPressed: online &&
-                                    !_printing &&
-                                    _documents.isNotEmpty
+                            onPressed: !_printing && _documents.isNotEmpty
                                 ? _print
                                 : null,
                           ),
@@ -393,10 +383,7 @@ class _QueueDocCard extends StatelessWidget {
             Row(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                _PdfDocThumb(
-                  path: doc.path,
-                  greyscale: doc.forceBlackAndWhite,
-                ),
+                _PdfDocThumb(path: doc.path, greyscale: doc.forceBlackAndWhite),
                 const SizedBox(width: 12),
                 Expanded(
                   child: Column(
@@ -464,10 +451,7 @@ class _QueueDocCard extends StatelessWidget {
 }
 
 class _PdfDocThumb extends StatefulWidget {
-  const _PdfDocThumb({
-    required this.path,
-    this.greyscale = false,
-  });
+  const _PdfDocThumb({required this.path, this.greyscale = false});
 
   final String path;
   final bool greyscale;
@@ -478,10 +462,26 @@ class _PdfDocThumb extends StatefulWidget {
 
 class _PdfDocThumbState extends State<_PdfDocThumb> {
   static const _greyscaleFilter = ColorFilter.matrix(<double>[
-    0.2126, 0.7152, 0.0722, 0, 0,
-    0.2126, 0.7152, 0.0722, 0, 0,
-    0.2126, 0.7152, 0.0722, 0, 0,
-    0, 0, 0, 1, 0,
+    0.2126,
+    0.7152,
+    0.0722,
+    0,
+    0,
+    0.2126,
+    0.7152,
+    0.0722,
+    0,
+    0,
+    0.2126,
+    0.7152,
+    0.0722,
+    0,
+    0,
+    0,
+    0,
+    0,
+    1,
+    0,
   ]);
 
   ui.Image? _image;
@@ -522,8 +522,7 @@ class _PdfDocThumbState extends State<_PdfDocThumb> {
         }
         final page = await doc.pages.first.ensureLoaded();
         final fullWidth = 140.0;
-        final fullHeight =
-            fullWidth * (page.height / math.max(page.width, 1));
+        final fullHeight = fullWidth * (page.height / math.max(page.width, 1));
         final rendered = await page.render(
           fullWidth: fullWidth,
           fullHeight: fullHeight,
@@ -566,18 +565,11 @@ class _PdfDocThumbState extends State<_PdfDocThumb> {
       decoration: BoxDecoration(
         color: AppColors.mist,
         borderRadius: BorderRadius.circular(8),
-        border: Border.all(
-          color: AppColors.purple.withValues(alpha: 0.12),
-        ),
+        border: Border.all(color: AppColors.purple.withValues(alpha: 0.12)),
       ),
       clipBehavior: Clip.antiAlias,
       child: _image != null
-          ? RawImage(
-              image: _image,
-              fit: BoxFit.cover,
-              width: 48,
-              height: 60,
-            )
+          ? RawImage(image: _image, fit: BoxFit.cover, width: 48, height: 60)
           : Center(
               child: _failed
                   ? const Icon(
@@ -597,9 +589,6 @@ class _PdfDocThumbState extends State<_PdfDocThumb> {
       return child;
     }
 
-    return ColorFiltered(
-      colorFilter: _greyscaleFilter,
-      child: child,
-    );
+    return ColorFiltered(colorFilter: _greyscaleFilter, child: child);
   }
 }
