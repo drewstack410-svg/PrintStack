@@ -28,6 +28,7 @@ const {
   createPrintJob,
   createCustomerPrintJob,
   listPrintJobs,
+  requestCustomerReprint,
   updatePrintJob,
 } = require('../controllers/printJobsController')
 const { paymentsRouter } = require('./payments')
@@ -81,6 +82,11 @@ router.post(
   '/partners/:partnerId/print-jobs/:id/cancel',
   requireAuth,
   cancelCustomerReservation,
+)
+router.post(
+  '/partners/:partnerId/print-jobs/:id/reprint',
+  requireAuth,
+  requestCustomerReprint,
 )
 router.get('/staffs', requireAuth, requireAdmin, listStaffs)
 router.post('/staffs', requireAuth, requireAdmin, createStaff)

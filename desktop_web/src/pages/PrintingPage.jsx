@@ -243,14 +243,24 @@ export default function PrintingPage() {
     }
 
     const pending = printJobs.filter(
-      (job) =>
+      (job) => {
+        const customerReprint =
+          job.status === 'reprint_queued' &&
+          job.reprintRequestedByCustomer === true
+        return (
         job.source === 'mobile' &&
-        (job.status === 'queued' || job.status === 'sending') &&
-        !autoPrinted.current.has(job.id) &&
+        (
+          job.status === 'queued' ||
+          job.status === 'sending' ||
+          customerReprint
+        ) &&
+        (!autoPrinted.current.has(job.id) || customerReprint) &&
         (
           (Array.isArray(job.documents) && job.documents.some((doc) => doc.fileUrl)) ||
           Boolean(job.fileUrl)
-        ),
+        )
+        )
+      },
     )
 
     if (!pending.length) {
@@ -274,6 +284,7 @@ export default function PrintingPage() {
               rawStatus: 'Sending to printer',
               printerName,
               deviceName,
+              reprintRequestedByCustomer: false,
             })
             setPrintJobs((current) =>
               current.map((item) =>

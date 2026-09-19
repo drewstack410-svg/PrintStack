@@ -3,8 +3,11 @@ import 'package:flutter/material.dart';
 import '../api/api_client.dart';
 import '../components/common/empty_state.dart';
 import '../components/common/error_card.dart';
+import '../components/common/list_skeleton.dart';
 import '../components/common/status_chip.dart';
 import '../theme.dart';
+
+enum _PaymentFilter { all, paid, pending, failed }
 
 class PaymentsPage extends StatefulWidget {
   const PaymentsPage({super.key});
@@ -15,6 +18,7 @@ class PaymentsPage extends StatefulWidget {
 
 class _PaymentsPageState extends State<PaymentsPage> {
   late Future<List<Map<String, dynamic>>> _payments;
+  _PaymentFilter _filter = _PaymentFilter.all;
 
   @override
   void initState() {
@@ -31,6 +35,22 @@ class _PaymentsPageState extends State<PaymentsPage> {
     await _payments;
   }
 
+  List<Map<String, dynamic>> _filtered(List<Map<String, dynamic>> payments) {
+    return payments
+        .where((payment) {
+          final status = (payment['paymentStatus'] ?? 'pending')
+              .toString()
+              .toLowerCase();
+          return switch (_filter) {
+            _PaymentFilter.all => true,
+            _PaymentFilter.paid => status == 'paid',
+            _PaymentFilter.failed => status == 'failed',
+            _PaymentFilter.pending => status != 'paid' && status != 'failed',
+          };
+        })
+        .toList(growable: false);
+  }
+
   @override
   Widget build(BuildContext context) {
     return FutureBuilder<List<Map<String, dynamic>>>(
@@ -38,7 +58,7 @@ class _PaymentsPageState extends State<PaymentsPage> {
       builder: (context, snapshot) {
         if (snapshot.connectionState == ConnectionState.waiting &&
             !snapshot.hasData) {
-          return const Center(child: CircularProgressIndicator());
+          return const ListSkeleton();
         }
 
         if (snapshot.hasError) {
@@ -52,33 +72,80 @@ class _PaymentsPageState extends State<PaymentsPage> {
           );
         }
 
-        final payments = snapshot.data ?? const [];
-        if (payments.isEmpty) {
-          return RefreshIndicator(
-            onRefresh: _refresh,
-            child: ListView(
-              physics: const AlwaysScrollableScrollPhysics(),
-              padding: const EdgeInsets.all(20),
-              children: const [
-                EmptyState(
-                  icon: Icons.payments_outlined,
-                  title: 'No payments yet',
-                  message: 'Payments for your print orders will appear here.',
-                ),
-              ],
-            ),
-          );
-        }
+        final allPayments = snapshot.data ?? const <Map<String, dynamic>>[];
+        final payments = _filtered(allPayments);
 
         return RefreshIndicator(
           onRefresh: _refresh,
-          child: ListView.separated(
+          child: ListView(
             physics: const AlwaysScrollableScrollPhysics(),
-            padding: const EdgeInsets.fromLTRB(20, 20, 20, 32),
-            itemCount: payments.length,
-            separatorBuilder: (_, _) => const SizedBox(height: 12),
-            itemBuilder: (context, index) =>
-                _PaymentTile(payment: payments[index]),
+            padding: const EdgeInsets.fromLTRB(16, 16, 16, 32),
+            children: [
+              DropdownButtonFormField<_PaymentFilter>(
+                initialValue: _filter,
+                isDense: true,
+                decoration: const InputDecoration(
+                  labelText: 'Payment status',
+                  prefixIcon: Icon(Icons.filter_list),
+                  contentPadding: EdgeInsets.symmetric(
+                    horizontal: 12,
+                    vertical: 10,
+                  ),
+                ),
+                items: const [
+                  DropdownMenuItem(
+                    value: _PaymentFilter.all,
+                    child: Text('All payments'),
+                  ),
+                  DropdownMenuItem(
+                    value: _PaymentFilter.paid,
+                    child: Text('Paid'),
+                  ),
+                  DropdownMenuItem(
+                    value: _PaymentFilter.pending,
+                    child: Text('Pending'),
+                  ),
+                  DropdownMenuItem(
+                    value: _PaymentFilter.failed,
+                    child: Text('Failed'),
+                  ),
+                ],
+                onChanged: (value) {
+                  if (value != null) {
+                    setState(() => _filter = value);
+                  }
+                },
+              ),
+              const SizedBox(height: 12),
+              Text(
+                '${payments.length} payment${payments.length == 1 ? '' : 's'}',
+                style: const TextStyle(
+                  color: AppColors.muted,
+                  fontSize: 12,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+              const SizedBox(height: 8),
+              if (allPayments.isEmpty)
+                const EmptyState(
+                  icon: Icons.payments_outlined,
+                  title: 'No payments yet',
+                  message: 'Payments for your print orders will appear here.',
+                )
+              else if (payments.isEmpty)
+                const EmptyState(
+                  icon: Icons.filter_alt_off_outlined,
+                  title: 'No matching payments',
+                  message: 'Choose another payment status.',
+                )
+              else
+                ...payments.map(
+                  (payment) => Padding(
+                    padding: const EdgeInsets.only(bottom: 10),
+                    child: _PaymentTile(payment: payment),
+                  ),
+                ),
+            ],
           ),
         );
       },

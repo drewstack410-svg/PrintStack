@@ -131,6 +131,7 @@ class ApiClient {
   Future<Map<String, dynamic>> createCustomerPrintOrder({
     required String partnerId,
     required List<Map<String, dynamic>> documents,
+    DateTime? claimAt,
   }) {
     if (documents.isEmpty) {
       throw const ApiException('Add at least one document to the order.');
@@ -139,7 +140,10 @@ class ApiClient {
     return _request(
       'POST',
       '/api/partners/$partnerId/print-jobs',
-      body: {'documents': documents},
+      body: {
+        'documents': documents,
+        if (claimAt != null) 'claimAt': claimAt.toUtc().toIso8601String(),
+      },
     );
   }
 
@@ -161,6 +165,16 @@ class ApiClient {
     return _request(
       'POST',
       '/api/partners/$partnerId/print-jobs/$printJobId/cancel',
+    );
+  }
+
+  Future<Map<String, dynamic>> requestPrintReprint({
+    required String partnerId,
+    required String printJobId,
+  }) {
+    return _request(
+      'POST',
+      '/api/partners/$partnerId/print-jobs/$printJobId/reprint',
     );
   }
 
@@ -230,6 +244,7 @@ class ApiClient {
 
     return createCustomerPrintOrder(
       partnerId: partnerId,
+      claimAt: null,
       documents: [
         {
           'documentName': documentName,

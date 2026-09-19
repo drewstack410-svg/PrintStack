@@ -121,8 +121,11 @@ function mapJob(docSnap) {
     paymentIntentId: data.paymentIntentId || '',
     isReservation: data.isReservation === true,
     reservationStatus: data.reservationStatus || '',
+    reprintRequestedByCustomer: data.reprintRequestedByCustomer === true,
+    reprintRequestedAt: toIso(data.reprintRequestedAt),
     paidAt: toIso(data.paidAt),
     cancelledAt: toIso(data.cancelledAt),
+    claimAt: toIso(data.claimAt),
     createdAt: toIso(data.createdAt),
     updatedAt: toIso(data.updatedAt),
   }

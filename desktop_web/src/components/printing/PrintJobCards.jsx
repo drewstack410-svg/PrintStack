@@ -163,6 +163,16 @@ function OrderCard({
                   {job.customerName || job.customerEmail}
                 </Typography>
               ) : null}
+              {job.claimAt ? (
+                <Typography
+                  variant="caption"
+                  color="primary.main"
+                  display="block"
+                  sx={{ mt: 0.35, fontSize: 11.5, fontWeight: 700 }}
+                >
+                  Claim: {formatWhen(job.claimAt)}
+                </Typography>
+              ) : null}
             </Box>
           </Stack>
           <Chip

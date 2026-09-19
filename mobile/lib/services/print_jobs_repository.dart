@@ -1,14 +1,14 @@
+import 'dart:async';
+
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 
 import '../models/print_job.dart';
 
 class PrintJobsRepository {
-  PrintJobsRepository({
-    FirebaseFirestore? firestore,
-    FirebaseAuth? auth,
-  })  : _firestore = firestore ?? FirebaseFirestore.instance,
-        _auth = auth ?? FirebaseAuth.instance;
+  PrintJobsRepository({FirebaseFirestore? firestore, FirebaseAuth? auth})
+    : _firestore = firestore ?? FirebaseFirestore.instance,
+      _auth = auth ?? FirebaseAuth.instance;
 
   static final PrintJobsRepository instance = PrintJobsRepository();
 
@@ -21,43 +21,78 @@ class PrintJobsRepository {
       return Stream.value(const []);
     }
 
-    Query<Map<String, dynamic>> query = _firestore
-        .collectionGroup('printJobs')
-        .where('customerUid', isEqualTo: uid)
-        .limit(limit);
+    late StreamController<List<PrintJob>> controller;
+    StreamSubscription<QuerySnapshot<Map<String, dynamic>>>? partnersSub;
+    final jobSubscriptions =
+        <String, StreamSubscription<QuerySnapshot<Map<String, dynamic>>>>{};
+    final jobsByPartner = <String, List<PrintJob>>{};
+    final partnerNames = <String, String>{};
 
-    return query.snapshots().asyncMap((snapshot) async {
-      final partnerNames = <String, String>{};
-      final jobs = <PrintJob>[];
-
-      for (final doc in snapshot.docs) {
-        final pathParts = doc.reference.path.split('/');
-        final partnerId = pathParts.length >= 2 ? pathParts[1] : '';
-        if (partnerId.isNotEmpty && !partnerNames.containsKey(partnerId)) {
-          try {
-            final partnerSnap =
-                await _firestore.collection('partners').doc(partnerId).get();
-            partnerNames[partnerId] =
-                (partnerSnap.data()?['companyName'] ?? '').toString();
-          } catch (_) {
-            partnerNames[partnerId] = '';
-          }
-        }
-
-        jobs.add(
-          PrintJob.fromDoc(
-            doc,
-            partnerName: partnerNames[partnerId] ?? '',
-          ),
-        );
-      }
-
+    void emitJobs() {
+      final jobs = jobsByPartner.values.expand((items) => items).toList();
       jobs.sort((a, b) {
         final aTime = a.createdAt?.millisecondsSinceEpoch ?? 0;
         final bTime = b.createdAt?.millisecondsSinceEpoch ?? 0;
         return bTime.compareTo(aTime);
       });
-      return jobs;
-    });
+      if (!controller.isClosed) {
+        controller.add(jobs.take(limit).toList(growable: false));
+      }
+    }
+
+    controller = StreamController<List<PrintJob>>(
+      onListen: () {
+        partnersSub = _firestore.collection('partners').snapshots().listen((
+          partnersSnapshot,
+        ) {
+          final activeIds = partnersSnapshot.docs.map((doc) => doc.id).toSet();
+
+          for (final partnerDoc in partnersSnapshot.docs) {
+            final partnerId = partnerDoc.id;
+            partnerNames[partnerId] = (partnerDoc.data()['companyName'] ?? '')
+                .toString();
+            if (jobSubscriptions.containsKey(partnerId)) {
+              continue;
+            }
+
+            jobSubscriptions[partnerId] = _firestore
+                .collection('partners')
+                .doc(partnerId)
+                .collection('printJobs')
+                .where('customerUid', isEqualTo: uid)
+                .snapshots()
+                .listen((jobsSnapshot) {
+                  jobsByPartner[partnerId] = jobsSnapshot.docs
+                      .map(
+                        (doc) => PrintJob.fromDoc(
+                          doc,
+                          partnerName: partnerNames[partnerId] ?? '',
+                        ),
+                      )
+                      .toList(growable: false);
+                  emitJobs();
+                }, onError: controller.addError);
+          }
+
+          final removedIds = jobSubscriptions.keys
+              .where((id) => !activeIds.contains(id))
+              .toList(growable: false);
+          for (final partnerId in removedIds) {
+            jobSubscriptions.remove(partnerId)?.cancel();
+            jobsByPartner.remove(partnerId);
+            partnerNames.remove(partnerId);
+          }
+          emitJobs();
+        }, onError: controller.addError);
+      },
+      onCancel: () async {
+        await partnersSub?.cancel();
+        await Future.wait(
+          jobSubscriptions.values.map((subscription) => subscription.cancel()),
+        );
+      },
+    );
+
+    return controller.stream;
   }
 }

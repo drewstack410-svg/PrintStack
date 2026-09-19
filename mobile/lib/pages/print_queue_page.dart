@@ -37,6 +37,7 @@ class _PrintQueuePageState extends State<PrintQueuePage> {
   late final Stream<Partner?> _partnerStream;
   Partner? _livePartner;
   bool _printing = false;
+  DateTime? _claimAt;
   String? _error;
   String? _success;
 
@@ -59,6 +60,53 @@ class _PrintQueuePageState extends State<PrintQueuePage> {
       widget.partner.convenienceFee < 0 ? 0 : widget.partner.convenienceFee;
 
   double get _orderTotal => _documentsTotal + _convenienceFee;
+
+  String get _claimAtLabel {
+    final value = _claimAt;
+    if (value == null) {
+      return 'Choose when you will claim the printed files';
+    }
+    final hour = value.hour % 12 == 0 ? 12 : value.hour % 12;
+    final minute = value.minute.toString().padLeft(2, '0');
+    final period = value.hour >= 12 ? 'PM' : 'AM';
+    return '${value.month}/${value.day}/${value.year} · $hour:$minute $period';
+  }
+
+  Future<void> _pickClaimAt() async {
+    final now = DateTime.now();
+    final initial = _claimAt ?? now.add(const Duration(hours: 1));
+    final date = await showDatePicker(
+      context: context,
+      initialDate: initial,
+      firstDate: DateTime(now.year, now.month, now.day),
+      lastDate: now.add(const Duration(days: 90)),
+      helpText: 'Select claim date',
+    );
+    if (date == null || !mounted) return;
+
+    final time = await showTimePicker(
+      context: context,
+      initialTime: TimeOfDay.fromDateTime(initial),
+      helpText: 'Select claim time',
+    );
+    if (time == null || !mounted) return;
+
+    final selected = DateTime(
+      date.year,
+      date.month,
+      date.day,
+      time.hour,
+      time.minute,
+    );
+    if (!selected.isAfter(now)) {
+      setState(() => _error = 'Claim time must be in the future.');
+      return;
+    }
+    setState(() {
+      _claimAt = selected;
+      _error = null;
+    });
+  }
 
   void _removeAt(int index) {
     setState(() {
@@ -124,6 +172,7 @@ class _PrintQueuePageState extends State<PrintQueuePage> {
       final result = await ApiClient.instance.createCustomerPrintOrder(
         partnerId: widget.partner.id,
         documents: payloads,
+        claimAt: _claimAt,
       );
 
       if (!mounted) {
@@ -242,6 +291,36 @@ class _PrintQueuePageState extends State<PrintQueuePage> {
                               color: AppColors.muted,
                               fontSize: 14,
                               height: 1.35,
+                            ),
+                          ),
+                          const SizedBox(height: 14),
+                          Material(
+                            color: Colors.white,
+                            borderRadius: BorderRadius.circular(16),
+                            child: ListTile(
+                              leading: const Icon(
+                                Icons.event_available_outlined,
+                                color: AppColors.purple,
+                              ),
+                              title: const Text(
+                                'Claim date and time',
+                                style: TextStyle(
+                                  color: AppColors.navy,
+                                  fontWeight: FontWeight.w800,
+                                ),
+                              ),
+                              subtitle: Text(_claimAtLabel),
+                              trailing: _claimAt == null
+                                  ? const Icon(Icons.chevron_right)
+                                  : IconButton(
+                                      tooltip: 'Clear claim schedule',
+                                      onPressed: _printing
+                                          ? null
+                                          : () =>
+                                                setState(() => _claimAt = null),
+                                      icon: const Icon(Icons.close),
+                                    ),
+                              onTap: _printing ? null : _pickClaimAt,
                             ),
                           ),
                           const SizedBox(height: 14),

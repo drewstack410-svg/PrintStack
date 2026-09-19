@@ -1,4 +1,4 @@
-const { FieldValue } = require('firebase-admin/firestore')
+const { FieldValue, Timestamp } = require('firebase-admin/firestore')
 const { db } = require('../firestore')
 const { isLocationOnline } = require('../lib/location')
 const { normalizePaperSizes } = require('../lib/paperSizes')
@@ -216,7 +216,11 @@ function mapJob(doc) {
     paymentIntentId: data.paymentIntentId || '',
     isReservation: data.isReservation === true,
     reservationStatus: data.reservationStatus || '',
+    reprintRequestedByCustomer: data.reprintRequestedByCustomer === true,
+    reprintRequestedAt:
+      data.reprintRequestedAt?.toDate?.()?.toISOString?.() || null,
     cancelledAt: data.cancelledAt?.toDate?.()?.toISOString?.() || null,
+    claimAt: data.claimAt?.toDate?.()?.toISOString?.() || null,
     paidAt: data.paidAt?.toDate?.()?.toISOString?.() || null,
     printingStartedAt: data.printingStartedAt?.toDate?.()?.toISOString?.() || null,
     completedAt: data.completedAt?.toDate?.()?.toISOString?.() || null,
@@ -462,6 +466,20 @@ async function createCustomerPrintJob(req, res) {
   )
   const totalPrice = Number((aggregates.totalPrice + convenienceFee).toFixed(2))
   const needsPayment = totalPrice >= 1
+  let claimAt = null
+  if (req.body.claimAt) {
+    const claimDate = new Date(req.body.claimAt)
+    const latestClaimDate = Date.now() + 90 * 24 * 60 * 60 * 1000
+    if (
+      Number.isNaN(claimDate.getTime()) ||
+      claimDate.getTime() <= Date.now() ||
+      claimDate.getTime() > latestClaimDate
+    ) {
+      res.status(400).json({ error: 'Claim date must be within the next 90 days' })
+      return
+    }
+    claimAt = Timestamp.fromDate(claimDate)
+  }
 
   const ref = jobsRef(partnerId).doc()
   const references = jobReferenceFields({
@@ -489,6 +507,7 @@ async function createCustomerPrintJob(req, res) {
     source: 'mobile',
     isReservation,
     reservationStatus: isReservation ? 'pending' : '',
+    claimAt,
     customerUid: req.user.uid,
     customerEmail: req.profile?.email || req.user.email || '',
     customerName,
@@ -580,6 +599,116 @@ async function cancelCustomerReservation(req, res) {
   })
 }
 
+async function requestCustomerReprint(req, res) {
+  const partnerId = String(req.params.partnerId || '').trim()
+  const printJobId = String(req.params.id || '').trim()
+  if (!partnerId || !printJobId) {
+    res.status(400).json({ error: 'Partner id and print job id are required' })
+    return
+  }
+
+  const ref = jobsRef(partnerId).doc(printJobId)
+  const snap = await ref.get()
+  if (!snap.exists) {
+    res.status(404).json({ error: 'Print order not found' })
+    return
+  }
+
+  const existing = snap.data() || {}
+  if (String(existing.customerUid || '') !== String(req.user.uid)) {
+    res.status(403).json({ error: 'You cannot reprint this order' })
+    return
+  }
+  if (existing.status !== 'printed' && existing.status !== 'failed') {
+    res.status(409).json({ error: 'Only completed or failed orders can be reprinted' })
+    return
+  }
+
+  const partnerSnap = await db.collection('partners').doc(partnerId).get()
+  if (!partnerSnap.exists) {
+    res.status(404).json({ error: 'Partner not found' })
+    return
+  }
+
+  const documents = documentsFromData(existing).map((document, index) =>
+    normalizeDocument(
+      {
+        ...document,
+        id: `doc-${index + 1}`,
+        status: 'queued',
+        localPath: '',
+      },
+      index,
+    ),
+  )
+  if (documents.length === 0) {
+    res.status(409).json({ error: 'This order has no documents to reprint' })
+    return
+  }
+
+  const aggregates = aggregateFromDocuments(documents)
+  const totalPrice = Number(existing.totalPrice) || aggregates.totalPrice
+  const convenienceFee = Math.max(0, Number(existing.convenienceFee) || 0)
+  const needsPayment = totalPrice >= 1
+  const orderNumber = await allocateOrderNumber(partnerId)
+  const newRef = jobsRef(partnerId).doc()
+  const references = jobReferenceFields({
+    partnerId,
+    printJobId: newRef.id,
+    customerUid: req.user.uid,
+  })
+  const isReservation = !isLocationOnline((partnerSnap.data() || {}).location)
+  const rawStatus = needsPayment
+    ? 'Reprint awaiting payment'
+    : 'Reprint queued for the shop'
+  const job = {
+    ...references,
+    orderNumber,
+    ...aggregates,
+    totalPrice,
+    convenienceFee,
+    documents,
+    printerName: '',
+    deviceName: '',
+    status: needsPayment ? 'awaiting_payment' : 'reprint_queued',
+    rawStatus,
+    source: 'mobile',
+    customerUid: req.user.uid,
+    customerEmail: existing.customerEmail || req.profile?.email || req.user.email || '',
+    customerName: existing.customerName || '',
+    paymentStatus: needsPayment ? 'unpaid' : 'paid',
+    paymentIntentId: '',
+    isReservation,
+    reservationStatus: isReservation ? 'pending' : '',
+    isReprint: true,
+    reprintOfPrintJobId: printJobId,
+    reprintOfOrderNumber: existing.orderNumber || '',
+    reprintRequestedByCustomer: !needsPayment,
+    createdAt: FieldValue.serverTimestamp(),
+    updatedAt: FieldValue.serverTimestamp(),
+  }
+
+  const batch = db.batch()
+  batch.set(newRef, job)
+  writeStatusEvent(batch, {
+    jobRef: newRef,
+    partnerId,
+    printJobId: newRef.id,
+    customerUid: existing.customerUid || '',
+    status: job.status,
+    rawStatus,
+    source: 'customer',
+  })
+  await batch.commit()
+
+  const created = await newRef.get()
+  res.status(201).json({
+    printJob: mapJob(created),
+    requiresPayment: needsPayment,
+    isReservation,
+  })
+}
+
 async function updatePrintJob(req, res) {
   const partnerId = await partnerIdFrom(req, res)
   if (!partnerId) {
@@ -620,6 +749,9 @@ async function updatePrintJob(req, res) {
   }
   if (req.body.deviceName) {
     updates.deviceName = String(req.body.deviceName)
+  }
+  if (typeof req.body.reprintRequestedByCustomer === 'boolean') {
+    updates.reprintRequestedByCustomer = req.body.reprintRequestedByCustomer
   }
 
   if (documentId && documents.length > 0) {
@@ -684,5 +816,6 @@ module.exports = {
   createPrintJob,
   createCustomerPrintJob,
   cancelCustomerReservation,
+  requestCustomerReprint,
   updatePrintJob,
 }

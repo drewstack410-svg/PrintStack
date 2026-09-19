@@ -1,62 +1,52 @@
 import 'package:flutter/material.dart';
 
-import '../api/api_client.dart';
 import '../components/common/empty_state.dart';
 import '../components/common/error_card.dart';
+import '../components/common/list_skeleton.dart';
 import '../components/common/status_chip.dart';
 import '../models/print_job.dart';
 import '../services/print_jobs_repository.dart';
 import '../theme.dart';
+import 'print_job_details_page.dart';
 
-class HistoryPage extends StatelessWidget {
+enum _HistoryFilter {
+  all,
+  active,
+  awaitingPayment,
+  reservations,
+  completed,
+  cancelled,
+  failed,
+}
+
+class HistoryPage extends StatefulWidget {
   const HistoryPage({super.key});
 
-  Future<void> _cancelReservation(BuildContext context, PrintJob job) async {
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (dialogContext) => AlertDialog(
-        title: const Text('Cancel reservation?'),
-        content: Text(
-          'Cancel reservation #${job.orderNumber}? This cannot be undone.',
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(dialogContext, false),
-            child: const Text('Keep'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.pop(dialogContext, true),
-            child: const Text('Cancel reservation'),
-          ),
-        ],
-      ),
-    );
-    if (confirmed != true || !context.mounted) {
-      return;
-    }
+  @override
+  State<HistoryPage> createState() => _HistoryPageState();
+}
 
-    try {
-      final result = await ApiClient.instance.cancelPrintReservation(
-        partnerId: job.partnerId,
-        printJobId: job.id,
-      );
-      if (!context.mounted) return;
-      final refundReview = result['requiresRefundReview'] == true;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-            refundReview
-                ? 'Reservation cancelled. The paid order needs refund review.'
-                : 'Reservation cancelled.',
-          ),
-        ),
-      );
-    } on ApiException catch (error) {
-      if (!context.mounted) return;
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text(error.message)));
-    }
+class _HistoryPageState extends State<HistoryPage> {
+  _HistoryFilter _filter = _HistoryFilter.all;
+
+  List<PrintJob> _filtered(List<PrintJob> jobs) {
+    return jobs
+        .where((job) {
+          return switch (_filter) {
+            _HistoryFilter.all => true,
+            _HistoryFilter.active =>
+              job.status == 'sending' ||
+                  job.status == 'queued' ||
+                  job.status == 'reprint_queued' ||
+                  job.status == 'printing',
+            _HistoryFilter.awaitingPayment => job.status == 'awaiting_payment',
+            _HistoryFilter.reservations => job.isReservation,
+            _HistoryFilter.completed => job.status == 'printed',
+            _HistoryFilter.cancelled => job.status == 'cancelled',
+            _HistoryFilter.failed => job.status == 'failed',
+          };
+        })
+        .toList(growable: false);
   }
 
   @override
@@ -66,7 +56,7 @@ class HistoryPage extends StatelessWidget {
       builder: (context, snapshot) {
         if (snapshot.connectionState == ConnectionState.waiting &&
             !snapshot.hasData) {
-          return const Center(child: CircularProgressIndicator());
+          return const ListSkeleton();
         }
 
         if (snapshot.hasError) {
@@ -74,35 +64,102 @@ class HistoryPage extends StatelessWidget {
             padding: const EdgeInsets.all(20),
             children: [
               ErrorCard(
-                message:
-                    'Could not load history. If this is the first time, create a Firestore collection-group index on printJobs.customerUid.\n\n${snapshot.error}',
+                message: 'Could not load history.\n\n${snapshot.error}',
               ),
             ],
           );
         }
 
-        final jobs = snapshot.data ?? const <PrintJob>[];
-        if (jobs.isEmpty) {
-          return ListView(
-            padding: const EdgeInsets.all(20),
-            children: const [
-              EmptyState(
+        final allJobs = snapshot.data ?? const <PrintJob>[];
+        final jobs = _filtered(allJobs);
+
+        return ListView(
+          padding: const EdgeInsets.fromLTRB(16, 16, 16, 32),
+          children: [
+            DropdownButtonFormField<_HistoryFilter>(
+              initialValue: _filter,
+              isDense: true,
+              decoration: const InputDecoration(
+                labelText: 'Filter history',
+                prefixIcon: Icon(Icons.filter_list),
+                contentPadding: EdgeInsets.symmetric(
+                  horizontal: 12,
+                  vertical: 10,
+                ),
+              ),
+              items: const [
+                DropdownMenuItem(
+                  value: _HistoryFilter.all,
+                  child: Text('All orders'),
+                ),
+                DropdownMenuItem(
+                  value: _HistoryFilter.active,
+                  child: Text('Active'),
+                ),
+                DropdownMenuItem(
+                  value: _HistoryFilter.awaitingPayment,
+                  child: Text('Awaiting payment'),
+                ),
+                DropdownMenuItem(
+                  value: _HistoryFilter.reservations,
+                  child: Text('Reservations'),
+                ),
+                DropdownMenuItem(
+                  value: _HistoryFilter.completed,
+                  child: Text('Completed'),
+                ),
+                DropdownMenuItem(
+                  value: _HistoryFilter.cancelled,
+                  child: Text('Cancelled'),
+                ),
+                DropdownMenuItem(
+                  value: _HistoryFilter.failed,
+                  child: Text('Failed'),
+                ),
+              ],
+              onChanged: (value) {
+                if (value != null) {
+                  setState(() => _filter = value);
+                }
+              },
+            ),
+            const SizedBox(height: 12),
+            Text(
+              '${jobs.length} order${jobs.length == 1 ? '' : 's'}',
+              style: const TextStyle(
+                color: AppColors.muted,
+                fontSize: 12,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+            const SizedBox(height: 8),
+            if (allJobs.isEmpty)
+              const EmptyState(
                 icon: Icons.history,
                 title: 'No print history yet',
-                message: 'Jobs you send from the Print tab will appear here.',
+                message: 'Your submitted print orders will appear here.',
+              )
+            else if (jobs.isEmpty)
+              const EmptyState(
+                icon: Icons.filter_alt_off_outlined,
+                title: 'No matching orders',
+                message: 'Choose another history filter.',
+              )
+            else
+              ...jobs.map(
+                (job) => Padding(
+                  padding: const EdgeInsets.only(bottom: 10),
+                  child: _HistoryTile(
+                    job: job,
+                    onTap: () => Navigator.of(context).push(
+                      MaterialPageRoute<void>(
+                        builder: (_) => PrintJobDetailsPage(job: job),
+                      ),
+                    ),
+                  ),
+                ),
               ),
-            ],
-          );
-        }
-
-        return ListView.separated(
-          padding: const EdgeInsets.fromLTRB(20, 20, 20, 32),
-          itemCount: jobs.length,
-          separatorBuilder: (_, _) => const SizedBox(height: 12),
-          itemBuilder: (context, index) => _HistoryTile(
-            job: jobs[index],
-            onCancel: () => _cancelReservation(context, jobs[index]),
-          ),
+          ],
         );
       },
     );
@@ -110,170 +167,114 @@ class HistoryPage extends StatelessWidget {
 }
 
 class _HistoryTile extends StatelessWidget {
-  const _HistoryTile({required this.job, required this.onCancel});
+  const _HistoryTile({required this.job, required this.onTap});
 
   final PrintJob job;
-  final VoidCallback onCancel;
+  final VoidCallback onTap;
 
-  String get _modeLabel {
-    if (job.bwPages > 0 && job.colorPages > 0) {
-      return '${job.bwPages} B&W · ${job.colorPages} color';
-    }
-    if (job.colorPages > 0 || job.colorMode == 'color') {
-      return 'Color';
-    }
-    return 'B&W';
-  }
+  String get _statusLabel => switch (job.status) {
+    'awaiting_payment' => 'Awaiting payment',
+    'sending' => 'Sending',
+    'queued' => 'Queued',
+    'reprint_queued' => 'Reprint queued',
+    'printing' => 'Printing',
+    'printed' => 'Printed',
+    'failed' => 'Failed',
+    'cancelled' => 'Cancelled',
+    _ => job.status.isEmpty ? 'Queued' : job.status,
+  };
 
-  String get _when {
-    final date = job.createdAt;
-    if (date == null) {
-      return '';
-    }
-    return '${date.month}/${date.day}/${date.year} · '
-        '${date.hour.toString().padLeft(2, '0')}:${date.minute.toString().padLeft(2, '0')}';
+  String get _date {
+    final value = job.createdAt?.toLocal();
+    if (value == null) return '';
+    return '${value.month}/${value.day}/${value.year}';
   }
 
   @override
   Widget build(BuildContext context) {
     final active =
-        job.status == 'printing' ||
+        job.status == 'sending' ||
         job.status == 'queued' ||
-        job.status == 'sending';
-    final statusLabel = switch (job.status) {
-      'awaiting_payment' => 'Awaiting payment',
-      'sending' => 'Sending',
-      'queued' => 'Queued',
-      'reprint_queued' => 'Reprint queued',
-      'printing' => 'Printing',
-      'printed' => 'Printed',
-      'failed' => 'Failed',
-      'cancelled' => 'Cancelled',
-      _ => job.status.isEmpty ? 'Queued' : job.status,
-    };
+        job.status == 'reprint_queued' ||
+        job.status == 'printing';
 
-    return Container(
-      padding: const EdgeInsets.all(14),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(16),
-      ),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Container(
-            width: 44,
-            height: 44,
-            decoration: BoxDecoration(
-              color: AppColors.purple.withValues(alpha: 0.1),
-              borderRadius: BorderRadius.circular(12),
-            ),
-            child: const Icon(
-              Icons.picture_as_pdf_outlined,
-              color: AppColors.purple,
-            ),
-          ),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  'Order #${job.orderNumber}',
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(
-                    fontWeight: FontWeight.w800,
-                    color: AppColors.navy,
-                  ),
-                ),
-                const SizedBox(height: 4),
-                Text(
-                  [
-                    if (job.partnerName.isNotEmpty) job.partnerName,
-                    '${job.documentCount} doc${job.documentCount == 1 ? '' : 's'}',
-                    if (job.documentName.isNotEmpty) job.documentName,
-                    '×${job.copies}',
-                    _modeLabel,
-                  ].join(' · '),
-                  style: const TextStyle(color: AppColors.muted, fontSize: 13),
-                ),
-                if (job.rawStatus.isNotEmpty) ...[
-                  const SizedBox(height: 4),
-                  Text(
-                    job.rawStatus,
-                    style: const TextStyle(
-                      color: AppColors.muted,
-                      fontSize: 12,
-                    ),
-                  ),
-                ],
-                if (job.paymentStatus.isNotEmpty) ...[
-                  const SizedBox(height: 4),
-                  Text(
-                    job.paymentStatus == 'paid'
-                        ? 'Payment confirmed'
-                        : job.paymentStatus == 'failed'
-                        ? 'Payment failed'
-                        : 'Payment ${job.paymentStatus}',
-                    style: TextStyle(
-                      color: job.paymentStatus == 'paid'
-                          ? Colors.green.shade700
-                          : AppColors.muted,
-                      fontSize: 12,
-                      fontWeight: FontWeight.w700,
-                    ),
-                  ),
-                ],
-                if (_when.isNotEmpty) ...[
-                  const SizedBox(height: 4),
-                  Text(
-                    _when,
-                    style: const TextStyle(
-                      color: AppColors.muted,
-                      fontSize: 12,
-                    ),
-                  ),
-                ],
-              ],
-            ),
-          ),
-          const SizedBox(width: 8),
-          Column(
-            crossAxisAlignment: CrossAxisAlignment.end,
+    return Material(
+      color: Colors.white,
+      borderRadius: BorderRadius.circular(14),
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(14),
+        child: Padding(
+          padding: const EdgeInsets.all(13),
+          child: Row(
             children: [
-              StatusChip(
-                label: statusLabel,
-                active: active || job.status == 'printed',
+              Container(
+                width: 42,
+                height: 42,
+                decoration: BoxDecoration(
+                  color: AppColors.purple.withValues(alpha: 0.1),
+                  borderRadius: BorderRadius.circular(11),
+                ),
+                child: const Icon(
+                  Icons.receipt_long_outlined,
+                  color: AppColors.purple,
+                ),
               ),
-              if (job.totalPrice > 0) ...[
-                const SizedBox(height: 8),
-                Text(
-                  '₱${job.totalPrice.toStringAsFixed(2)}',
-                  style: const TextStyle(
-                    fontWeight: FontWeight.w800,
-                    color: AppColors.purpleDark,
-                  ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Order #${job.orderNumber}',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        color: AppColors.navy,
+                        fontWeight: FontWeight.w900,
+                      ),
+                    ),
+                    const SizedBox(height: 3),
+                    Text(
+                      [
+                        if (job.partnerName.isNotEmpty) job.partnerName,
+                        '${job.documentCount} doc${job.documentCount == 1 ? '' : 's'}',
+                        if (_date.isNotEmpty) _date,
+                      ].join(' · '),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        color: AppColors.muted,
+                        fontSize: 12,
+                      ),
+                    ),
+                  ],
                 ),
-              ],
-              if (job.isReservation &&
-                  job.status != 'cancelled' &&
-                  job.status != 'printing' &&
-                  job.status != 'printed') ...[
-                const SizedBox(height: 4),
-                TextButton(
-                  onPressed: onCancel,
-                  style: TextButton.styleFrom(
-                    foregroundColor: Colors.red.shade700,
-                    visualDensity: VisualDensity.compact,
-                    padding: EdgeInsets.zero,
+              ),
+              const SizedBox(width: 8),
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.end,
+                children: [
+                  StatusChip(
+                    label: _statusLabel,
+                    active: active || job.status == 'printed',
                   ),
-                  child: const Text('Cancel'),
-                ),
-              ],
+                  const SizedBox(height: 6),
+                  Text(
+                    '₱${job.totalPrice.toStringAsFixed(2)}',
+                    style: const TextStyle(
+                      color: AppColors.purpleDark,
+                      fontSize: 12,
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(width: 4),
+              const Icon(Icons.chevron_right, size: 20, color: AppColors.muted),
             ],
           ),
-        ],
+        ),
       ),
     );
   }

@@ -75,6 +75,7 @@ class PrintJob {
     this.printingStartedAt,
     this.completedAt,
     this.cancelledAt,
+    this.claimAt,
   });
 
   final String id;
@@ -103,6 +104,7 @@ class PrintJob {
   final DateTime? printingStartedAt;
   final DateTime? completedAt;
   final DateTime? cancelledAt;
+  final DateTime? claimAt;
 
   factory PrintJob.fromDoc(
     QueryDocumentSnapshot<Map<String, dynamic>> doc, {
@@ -205,6 +207,7 @@ class PrintJob {
       printingStartedAt: readDate('printingStartedAt'),
       completedAt: readDate('completedAt'),
       cancelledAt: readDate('cancelledAt'),
+      claimAt: readDate('claimAt'),
     );
   }
 }

@@ -322,7 +322,7 @@ class _ShopPricingPageState extends State<ShopPricingPage> {
                   child: Padding(
                     padding: const EdgeInsets.fromLTRB(14, 10, 14, 10),
                     child: GradientButton(
-                      label: online ? 'Print at this shop' : 'Reserve printing',
+                      label: 'Print at this shop',
                       onPressed: sizes.isEmpty
                           ? null
                           : () => _openOrder(partner),
