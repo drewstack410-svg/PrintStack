@@ -1,11 +1,21 @@
 import { createContext, useContext, useEffect, useMemo, useState } from 'react'
-import { onAuthStateChanged, signInWithEmailAndPassword, signOut } from 'firebase/auth'
+import {
+  createUserWithEmailAndPassword,
+  GoogleAuthProvider,
+  onAuthStateChanged,
+  signInWithEmailAndPassword,
+  signInWithPopup,
+  signOut,
+  updateProfile,
+} from 'firebase/auth'
 import { doc, getDoc } from 'firebase/firestore'
 import { auth, db } from '../firebase'
 import { fetchMe } from '../api'
-import { ADMIN_ROLE, mapUserDoc, SUPERADMIN_ROLE } from '../users'
+import { ADMIN_ROLE, CUSTOMER_ROLE, mapUserDoc, SUPERADMIN_ROLE } from '../users'
+import { ensureCustomerProfile } from './ensureCustomerProfile'
 
 const AuthContext = createContext(null)
+const googleProvider = new GoogleAuthProvider()
 
 async function loadProfile(currentUser) {
   try {
@@ -55,7 +65,25 @@ export function AuthProvider({ children }) {
       loading,
       isSuperAdmin: profile?.role === SUPERADMIN_ROLE,
       isAdmin: profile?.role === ADMIN_ROLE,
+      isCustomer: profile?.role === CUSTOMER_ROLE,
       signIn: (email, password) => signInWithEmailAndPassword(auth, email, password),
+      signUp: async ({ firstName, lastName, email, password }) => {
+        const credential = await createUserWithEmailAndPassword(auth, email.trim(), password)
+        const displayName = [firstName, lastName].map((part) => part.trim()).filter(Boolean).join(' ')
+        if (displayName) {
+          await updateProfile(credential.user, { displayName })
+        }
+        await ensureCustomerProfile(credential.user, {
+          firstName: firstName.trim(),
+          lastName: lastName.trim(),
+        })
+        return credential
+      },
+      signInWithGoogle: async () => {
+        const credential = await signInWithPopup(auth, googleProvider)
+        await ensureCustomerProfile(credential.user)
+        return credential
+      },
       signOut: () => signOut(auth),
     }),
     [user, profile, loading],

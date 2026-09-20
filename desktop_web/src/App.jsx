@@ -5,12 +5,15 @@ import { getDesktopApi } from './api'
 import LoadingScreen from './components/common/LoadingScreen'
 import AppShell from './components/layout/AppShell'
 import DesktopTitleBar from './components/layout/DesktopTitleBar'
+import CustomerShell from './customer/CustomerShell'
 import AccessDeniedPage from './pages/AccessDeniedPage'
 import LoginPage from './pages/LoginPage'
+import { isDesktopApp } from './lib/platform'
 import { createAppTheme, DEFAULT_COLOR_MODE } from './theme'
 
 function AppGate() {
-  const { loading, user, isSuperAdmin, isAdmin } = useAuth()
+  const { loading, user, isSuperAdmin, isAdmin, isCustomer } = useAuth()
+  const desktop = isDesktopApp()
 
   if (loading) {
     return <LoadingScreen />
@@ -20,11 +23,18 @@ function AppGate() {
     return <LoginPage />
   }
 
-  if (!isSuperAdmin && !isAdmin) {
+  if (desktop) {
+    if (isSuperAdmin || isAdmin) {
+      return <AppShell />
+    }
     return <AccessDeniedPage />
   }
 
-  return <AppShell />
+  if (isCustomer) {
+    return <CustomerShell />
+  }
+
+  return <AccessDeniedPage />
 }
 
 export default function App() {

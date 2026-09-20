@@ -147,6 +147,19 @@ class AuthService {
     await _auth.signOut();
   }
 
+  Future<String> loadRole(User user) async {
+    await ensureUserDocument(user);
+    final snap = await _firestore.collection('users').doc(user.uid).get();
+    final raw = (snap.data()?['role'] ?? customerRole).toString().trim();
+    if (raw.isEmpty || raw == 'user') {
+      return customerRole;
+    }
+    return raw;
+  }
+
+  /// Customer surfaces (mobile / website) reject elevated roles.
+  bool isElevatedRole(String role) => _protectedRoles.contains(role);
+
   Future<void> ensureUserDocument(
     User user, {
     String? firstName,

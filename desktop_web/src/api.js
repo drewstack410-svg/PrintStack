@@ -210,12 +210,61 @@ export function resolvePlaceViaApi(idToken, body) {
   })
 }
 
-export function fetchRouteViaApi(idToken, { fromLat, fromLng, toLat, toLng }) {
+export function fetchRouteViaApi(idToken, { fromLat, fromLng, toLat, toLng, mode = 'walk' }) {
   const params = new URLSearchParams({
     fromLat: String(fromLat),
     fromLng: String(fromLng),
     toLat: String(toLat),
     toLng: String(toLng),
+    mode: String(mode || 'walk'),
   })
   return authorizedJson(`/api/geo/route?${params}`, idToken)
+}
+
+export function listMyPrintOrderPayments(idToken) {
+  return authorizedJson('/api/payments/print-order', idToken)
+}
+
+export function createCustomerPrintOrder(idToken, partnerId, { documents, claimAt }) {
+  return authorizedJson(`/api/partners/${partnerId}/print-jobs`, idToken, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      documents,
+      ...(claimAt ? { claimAt } : {}),
+    }),
+  })
+}
+
+export function createPrintOrderPaymentIntent(idToken, { partnerId, printJobId }) {
+  return authorizedJson('/api/payments/print-order/intent', idToken, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ partnerId, printJobId }),
+  })
+}
+
+export function payPrintOrder(
+  idToken,
+  { paymentIntentId, clientKey, paymentMethodType, billing, returnPath },
+) {
+  return authorizedJson('/api/payments/print-order/pay', idToken, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      paymentIntentId,
+      clientKey,
+      paymentMethodType,
+      billing,
+      ...(returnPath ? { returnPath } : {}),
+    }),
+  })
+}
+
+export function finalizePrintOrderPayment(idToken, paymentIntentId) {
+  return authorizedJson('/api/payments/print-order/finalize', idToken, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ paymentIntentId }),
+  })
 }

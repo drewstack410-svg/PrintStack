@@ -93,6 +93,25 @@ export const loginInitialValues = {
   password: '',
 }
 
+export const signupSchema = yup.object({
+  firstName: yup.string().trim().required('First name is required'),
+  lastName: yup.string().trim().required('Last name is required'),
+  email: emailField,
+  password: passwordField,
+  confirmPassword: yup
+    .string()
+    .required('Confirm your password')
+    .oneOf([yup.ref('password')], 'Passwords must match'),
+})
+
+export const signupInitialValues = {
+  firstName: '',
+  lastName: '',
+  email: '',
+  password: '',
+  confirmPassword: '',
+}
+
 export const partnerInitialValues = {
   companyName: '',
   email: '',

@@ -8,7 +8,10 @@ export const brand = {
   purple: '#7C5CFF',
   purpleDark: '#3D1FA8',
   navy: '#0B1220',
+  /** Mobile top/bottom bar violet */
+  barDark: '#24125C',
   mist: '#F4F7FC',
+  muted: '#5B6475',
   gradient: 'linear-gradient(90deg, #22D3EE 0%, #4F7CFF 50%, #7C5CFF 100%)',
 }
 
@@ -64,7 +67,7 @@ export function createAppTheme(mode = DEFAULT_COLOR_MODE) {
         styleOverrides: {
           root: {
             backgroundImage: 'none',
-            backgroundColor: brand.purpleDark,
+            backgroundColor: brand.barDark,
             color: '#ffffff',
             boxShadow: 'none',
           },
@@ -121,6 +124,105 @@ export function createAppTheme(mode = DEFAULT_COLOR_MODE) {
             minWidth: 40,
             color: '#000000',
           },
+        },
+      },
+    },
+  })
+}
+
+/** Tighter type, spacing, and controls for the customer web UI. */
+export function createCustomerTheme(mode = DEFAULT_COLOR_MODE) {
+  const base = createAppTheme(mode)
+  return createTheme(base, {
+    // Must be a function when merging themes — a bare number can overwrite the helper.
+    spacing: (...args) => {
+      if (args.length === 0) return 7
+      return args
+        .map((value) => (typeof value === 'string' ? value : `${7 * Number(value)}px`))
+        .join(' ')
+    },
+    shape: { borderRadius: 10 },
+    typography: {
+      fontSize: 13,
+      h4: { fontSize: '1.25rem', fontWeight: 800, letterSpacing: 0.3 },
+      h5: { fontSize: '1.05rem', fontWeight: 700 },
+      h6: { fontSize: '0.95rem', fontWeight: 700, letterSpacing: 0.15 },
+      subtitle1: { fontSize: '0.8125rem' },
+      subtitle2: { fontSize: '0.75rem' },
+      body1: { fontSize: '0.8125rem', lineHeight: 1.45 },
+      body2: { fontSize: '0.75rem', lineHeight: 1.4 },
+      button: { fontSize: '0.8125rem', fontWeight: 700 },
+      caption: { fontSize: '0.6875rem' },
+    },
+    components: {
+      MuiToolbar: {
+        styleOverrides: {
+          root: {
+            minHeight: 48,
+            '@media (min-width:0px)': { minHeight: 48 },
+          },
+        },
+      },
+      MuiIconButton: {
+        defaultProps: { size: 'small' },
+        styleOverrides: {
+          root: { padding: 6 },
+        },
+      },
+      MuiButton: {
+        styleOverrides: {
+          root: {
+            textTransform: 'none',
+            borderRadius: 999,
+            paddingInline: 14,
+            minHeight: 40,
+            fontSize: '0.8125rem',
+          },
+        },
+      },
+      MuiTextField: {
+        defaultProps: { size: 'small' },
+      },
+      MuiDialogTitle: {
+        styleOverrides: {
+          root: { padding: '10px 14px', fontSize: '0.95rem' },
+        },
+      },
+      MuiDialogContent: {
+        styleOverrides: {
+          root: { padding: '12px 14px' },
+        },
+      },
+      MuiDialogActions: {
+        styleOverrides: {
+          root: { padding: '8px 12px', gap: 8 },
+        },
+      },
+      MuiListItemButton: {
+        styleOverrides: {
+          root: {
+            borderRadius: 10,
+            marginInline: 6,
+            paddingTop: 5,
+            paddingBottom: 5,
+            minHeight: 38,
+          },
+        },
+      },
+      MuiListItemIcon: {
+        styleOverrides: {
+          root: { minWidth: 32 },
+        },
+      },
+      MuiSvgIcon: {
+        styleOverrides: {
+          fontSizeMedium: { fontSize: '1.15rem' },
+          fontSizeSmall: { fontSize: '1rem' },
+        },
+      },
+      MuiAvatar: {
+        styleOverrides: {
+          root: { width: 32, height: 32, fontSize: 13 },
         },
       },
     },
