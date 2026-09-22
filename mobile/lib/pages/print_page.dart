@@ -28,8 +28,8 @@ class PrintPage extends StatefulWidget {
 class _PrintPageState extends State<PrintPage> {
   late Stream<List<Partner>> _partnersStream;
 
-  /// Show ~3 partner cards at once in the bottom slider.
-  final _pageController = PageController(viewportFraction: 0.28);
+  /// Keep the active shop card centered while retaining swipe navigation.
+  final _pageController = PageController();
   final _searchController = TextEditingController();
   final _searchFocus = FocusNode();
   GoogleMapController? _mapController;
@@ -721,11 +721,7 @@ class _PrintPageState extends State<PrintPage> {
                 ),
               ),
             if (!searching)
-              Positioned(
-                right: 12,
-                bottom: carouselPartners.isEmpty ? 12 : 126,
-                child: const _MapLegend(),
-              ),
+              Positioned(right: 12, bottom: 8, child: const _MapLegend()),
             if (snapshot.connectionState == ConnectionState.waiting &&
                 !snapshot.hasData)
               const Center(child: CircularProgressIndicator()),
@@ -760,7 +756,7 @@ class _PrintPageState extends State<PrintPage> {
               Positioned(
                 left: 0,
                 right: 0,
-                bottom: 12,
+                bottom: 44,
                 child: _PartnerCarousel(
                   partners: carouselPartners,
                   selectedId: _selectedId,
@@ -872,24 +868,26 @@ class _PartnerCarousel extends StatelessWidget {
             itemBuilder: (context, index) {
               final partner = partners[index];
               final selected = partner.id == selectedId;
-              return AnimatedScale(
-                scale: selected ? 1 : 0.9,
-                duration: const Duration(milliseconds: 220),
-                curve: Curves.easeOutCubic,
-                child: AnimatedOpacity(
-                  opacity: selected ? 1 : 0.72,
-                  duration: const Duration(milliseconds: 220),
-                  child: Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 3),
-                    child: _FloatingPartnerCard(
-                      partner: partner,
-                      selected: selected,
-                      distanceMeters: distanceMetersFor(partner),
-                      routeEta: selected ? selectedRoute?.etaLabel : null,
-                      routeDistance: selected
-                          ? selectedRoute?.distanceText
-                          : null,
-                      onTap: () => onOpen(partner),
+              return Center(
+                child: SizedBox(
+                  width: 112,
+                  child: AnimatedScale(
+                    scale: selected ? 1 : 0.94,
+                    duration: const Duration(milliseconds: 220),
+                    curve: Curves.easeOutCubic,
+                    child: AnimatedOpacity(
+                      opacity: selected ? 1 : 0.72,
+                      duration: const Duration(milliseconds: 220),
+                      child: _FloatingPartnerCard(
+                        partner: partner,
+                        selected: selected,
+                        distanceMeters: distanceMetersFor(partner),
+                        routeEta: selected ? selectedRoute?.etaLabel : null,
+                        routeDistance: selected
+                            ? selectedRoute?.distanceText
+                            : null,
+                        onTap: () => onOpen(partner),
+                      ),
                     ),
                   ),
                 ),

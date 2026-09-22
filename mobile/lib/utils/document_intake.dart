@@ -25,7 +25,6 @@ const _uploadableExtensions = <String>[
   'png',
   'jpg',
   'jpeg',
-  'doc',
   'docx',
 ];
 
@@ -58,7 +57,7 @@ Future<String?> showDocumentSourceDialog(BuildContext context) {
               _DocumentSourceOptionCard(
                 icon: Icons.upload_file_rounded,
                 title: 'Upload file',
-                subtitle: 'PDF, Word, or image',
+                subtitle: 'PDF, Word (.docx), or image',
                 onTap: () => Navigator.pop(context, 'upload'),
               ),
               const SizedBox(height: 8),

@@ -44,6 +44,9 @@
     }
   },
   "dependencies": {
+    "docx-preview": "^0.4.1",
+    "html2canvas": "^1.4.1",
+    "jspdf": "^4.2.1",
     "pdf-to-printer": "^5.8.1",
     "pdfjs-dist": "^4.10.38"
   },

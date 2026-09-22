@@ -267,3 +267,24 @@ export async function renderPdfPageCanvases(file, { maxWidth = 720, signal } = {
     await doc.destroy()
   }
 }
+
+export async function renderPdfThumbnail(file, { maxWidth = 120, signal } = {}) {
+  const bytes = new Uint8Array(await file.arrayBuffer())
+  if (signal?.aborted) return ''
+  const doc = await pdfjs.getDocument({ data: bytes }).promise
+  try {
+    const page = await doc.getPage(1)
+    if (signal?.aborted) return ''
+    const base = page.getViewport({ scale: 1 })
+    const scale = Math.min(1.5, maxWidth / Math.max(base.width, 1))
+    const viewport = page.getViewport({ scale })
+    const canvas = document.createElement('canvas')
+    canvas.width = Math.max(1, Math.floor(viewport.width))
+    canvas.height = Math.max(1, Math.floor(viewport.height))
+    const ctx = canvas.getContext('2d')
+    await page.render({ canvasContext: ctx, viewport }).promise
+    return signal?.aborted ? '' : canvas.toDataURL('image/jpeg', 0.82)
+  } finally {
+    await doc.destroy()
+  }
+}

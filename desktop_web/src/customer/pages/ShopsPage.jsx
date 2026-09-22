@@ -49,9 +49,10 @@ import {
 import DocumentLayoutCanvas from '../DocumentLayoutCanvas'
 import { buildPrintDraft } from '../printDraft'
 import { usePartners } from '../usePartners'
+import { convertWordToPdf } from '../wordToPdf'
 
-const ACCEPT_EXT = new Set(['pdf', 'png', 'jpg', 'jpeg', 'doc', 'docx'])
-const ACCEPT_ATTR = '.pdf,.png,.jpg,.jpeg,.doc,.docx'
+const ACCEPT_EXT = new Set(['pdf', 'png', 'jpg', 'jpeg', 'docx'])
+const ACCEPT_ATTR = '.pdf,.png,.jpg,.jpeg,.docx'
 
 function fileExtension(name = '') {
   const parts = String(name).toLowerCase().split('.')
@@ -106,8 +107,10 @@ export function ShopOrderView({ partner, onClose, onContinueToCheckout }) {
   const [layoutImageUrl, setLayoutImageUrl] = useState('')
   const [forcedSizeId, setForcedSizeId] = useState(null)
   const fileInputRef = useRef(null)
+  const intakeIdRef = useRef(0)
 
   useEffect(() => {
+    intakeIdRef.current += 1
     setFile(null)
     setUploadError('')
     setDragOver(false)
@@ -211,14 +214,38 @@ export function ShopOrderView({ partner, onClose, onContinueToCheckout }) {
   const canPrint =
     Boolean(file) && !reading && sizeMatched && totalPages > 0 && sizes.length > 0
 
-  function takeFile(next) {
+  async function takeFile(next) {
     if (!next) return
     const ext = fileExtension(next.name)
+    if (ext === 'doc') {
+      setUploadError('Legacy Word files (.doc) are not supported. Save the file as .docx or PDF first.')
+      return
+    }
     if (!ACCEPT_EXT.has(ext)) {
-      setUploadError('Use PDF, Word, or image files (png/jpg).')
+      setUploadError('Use PDF, Word (.docx), or image files (png/jpg).')
       return
     }
     setUploadError('')
+
+    if (ext === 'docx') {
+      const intakeId = ++intakeIdRef.current
+      setReading(true)
+      try {
+        const converted = await convertWordToPdf(next)
+        if (intakeId !== intakeIdRef.current) return
+        setForcedSizeId(null)
+        setFile(converted)
+        if (!isDesktop) setMobileStep('order')
+      } catch (error) {
+        console.warn('[shop-pricing] Word conversion failed', error)
+        if (intakeId === intakeIdRef.current) {
+          setUploadError(error.message || 'Could not convert that Word document to PDF.')
+        }
+      } finally {
+        if (intakeId === intakeIdRef.current) setReading(false)
+      }
+      return
+    }
 
     // Mobile mirrors app intake: images go through Place on layout first.
     if (!isDesktop && isImageFile(next)) {
@@ -234,6 +261,7 @@ export function ShopOrderView({ partner, onClose, onContinueToCheckout }) {
   }
 
   function clearFile() {
+    intakeIdRef.current += 1
     setFile(null)
     setUploadError('')
     setAnalysis(null)
@@ -914,7 +942,7 @@ function ChooseDocumentCard({ onClick, busy = false, error = '' }) {
         Choose document
       </Typography>
       <Typography sx={{ color: brand.muted, fontSize: 12, fontWeight: 600, textAlign: 'center' }}>
-        Tap to upload a PDF, Word, or image file
+        Tap to upload a PDF, Word (.docx), or image file
       </Typography>
       {error ? (
         <Typography sx={{ color: '#B71C1C', fontSize: 12, fontWeight: 600, mt: 0.5 }}>
@@ -974,7 +1002,7 @@ function DocumentDropzone({ file, dragOver, error, onDragOverChange, onFile, onC
           Drop document here
         </Typography>
         <Typography sx={{ color: brand.muted, fontSize: 12.5, mt: 0.5 }}>
-          or click to browse · PDF, Word, PNG, JPG
+          or click to browse · PDF, Word (.docx), PNG, JPG
         </Typography>
       </Box>
     </Box>

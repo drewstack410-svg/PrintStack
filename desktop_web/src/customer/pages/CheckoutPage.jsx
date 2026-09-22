@@ -23,12 +23,93 @@ import {
 import { useAuth } from '../../auth/AuthProvider'
 import { brand } from '../../theme'
 import { EmptyState, GradientButton, PartnerAvatar } from '../components'
+import { isImageFile, isPdfFile, renderPdfThumbnail } from '../pdfAnalyze'
 import {
   draftLineTotal,
   draftPageBreakdown,
   draftToOrderPayload,
   uploadPrintFile,
 } from '../printDraft'
+
+function DocumentThumbnail({ doc, small = false }) {
+  const [src, setSrc] = useState('')
+  const [failed, setFailed] = useState(false)
+
+  useEffect(() => {
+    const file = doc?.file
+    if (!file) {
+      return undefined
+    }
+
+    const controller = new AbortController()
+    let active = true
+    let objectUrl = ''
+
+    if (isImageFile(file)) {
+      objectUrl = URL.createObjectURL(file)
+      Promise.resolve().then(() => {
+        if (active) setSrc(objectUrl)
+      })
+    } else if (isPdfFile(file)) {
+      renderPdfThumbnail(file, {
+        maxWidth: small ? 72 : 120,
+        signal: controller.signal,
+      })
+        .then((thumbnail) => {
+          if (!controller.signal.aborted) {
+            if (thumbnail) setSrc(thumbnail)
+            else setFailed(true)
+          }
+        })
+        .catch((error) => {
+          console.warn('[checkout] thumbnail failed', error)
+          if (!controller.signal.aborted) setFailed(true)
+        })
+    } else {
+      setFailed(true)
+    }
+
+    return () => {
+      active = false
+      controller.abort()
+      if (objectUrl) URL.revokeObjectURL(objectUrl)
+    }
+  }, [doc?.file, small])
+
+  const width = small ? 38 : 58
+  const height = small ? 48 : 74
+
+  return (
+    <Box
+      sx={{
+        width,
+        height,
+        flexShrink: 0,
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        overflow: 'hidden',
+        borderRadius: 1,
+        border: '1px solid rgba(15, 23, 42, 0.12)',
+        bgcolor: '#f8fafc',
+        filter: doc?.forceBlackAndWhite ? 'grayscale(1)' : 'none',
+      }}
+    >
+      {src ? (
+        <Box
+          component="img"
+          src={src}
+          alt={`Preview of ${doc?.fileName || 'document'}`}
+          sx={{ width: '100%', height: '100%', objectFit: 'contain', bgcolor: '#fff' }}
+        />
+      ) : failed ? (
+        <PrintOutlinedIcon sx={{ color: brand.muted, fontSize: small ? 18 : 24 }} />
+      ) : (
+        <CircularProgress size={small ? 14 : 18} />
+      )}
+    </Box>
+  )
+}
 
 function formatClaimLabel(value) {
   if (!value) return 'Choose when you will claim the printed files'
@@ -282,6 +363,7 @@ export default function CheckoutPage({ partner, documents: initialDocs, onClose,
                 }}
               >
                 <Box sx={{ display: 'flex', alignItems: 'flex-start', gap: 1 }}>
+                  <DocumentThumbnail doc={doc} />
                   <Box sx={{ flex: 1, minWidth: 0 }}>
                     <Typography noWrap sx={{ fontWeight: 800, color: brand.navy }}>
                       {doc.fileName}
@@ -603,13 +685,18 @@ function CheckoutPayment({
             </Typography>
           </Box>
           {documents.map((doc) => (
-            <Typography
+            <Box
               key={doc.id}
-              noWrap
-              sx={{ color: brand.muted, fontSize: 12.5, py: 0.35 }}
+              sx={{ display: 'flex', alignItems: 'center', gap: 1, py: 0.5 }}
             >
-              {doc.fileName} · ₱{draftLineTotal(doc).toFixed(2)}
-            </Typography>
+              <DocumentThumbnail doc={doc} small />
+              <Typography noWrap sx={{ flex: 1, color: brand.muted, fontSize: 12.5 }}>
+                {doc.fileName}
+              </Typography>
+              <Typography sx={{ color: brand.purple, fontWeight: 800, fontSize: 12.5 }}>
+                ₱{draftLineTotal(doc).toFixed(2)}
+              </Typography>
+            </Box>
           ))}
         </Box>
 
